@@ -44,4 +44,3 @@ Comment on [issue #21](https://github.com/arkiental/GridPilot/issues/21), for ex
 - Generated with the built-in imagegen tool, one call per concept; [complete prompts](PROMPTS.md).
 - Gallery images reviewed for overall layout, interface palette and selection treatment.
 - No source code changed; compilation/native placement tests do not validate these raster concepts and were not run for this design-only change.
-
