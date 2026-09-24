@@ -1,0 +1,19 @@
+**/bin/
+**/obj/
+.vs/
+artifacts/
+*.user
+*.suo
+
+# Local, unrelated fractal projects and redundant generated archives.
+*.ifsjson
+/Fractal Collection/
+/design/*.zip
+
+# Local credentials and agent scratch work.
+.env
+.env.*
+*.pfx
+*.p12
+.agent-state/
+.worktrees/

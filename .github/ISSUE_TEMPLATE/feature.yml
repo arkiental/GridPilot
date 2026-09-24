@@ -1,0 +1,25 @@
+name: Feature request
+description: Suggest an improvement or a new capability.
+title: "[Feature] "
+labels: ["type:feature", "status:triage"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What would this help you do?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: How should it work?
+      description: Describe the interaction. Sketches and screenshots are welcome.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: How will we know it is finished?
+      placeholder: "- [ ] I can…\n- [ ] It also handles…"
+    validations:
+      required: true

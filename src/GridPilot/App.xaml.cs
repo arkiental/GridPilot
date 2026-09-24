@@ -1,0 +1,253 @@
+using System.Diagnostics;
+using System.Security.Principal;
+using System.Windows;
+using System.Windows.Threading;
+using GridPilot.UI;
+using GridPilot.Windows;
+using Forms = System.Windows.Forms;
+
+namespace GridPilot;
+
+public partial class App : Application
+{
+    private Mutex? instanceMutex;
+    private EventWaitHandle? showEvent;
+    private RegisteredWaitHandle? showWait;
+    private HotkeyService? hotkeys;
+    private Forms.NotifyIcon? tray;
+    private System.Drawing.Icon? trayIcon;
+    private Forms.ToolStripMenuItem? pauseItem, undoItem, startupItem;
+    private readonly WindowService windows = new();
+    private SettingsStore store = null!;
+    private AppSettings settings = new();
+    private GridPanel? panel;
+    private SettingsWindow? settingsWindow;
+    private WindowTarget? lastTarget;
+    private Region? lastRegion;
+    private bool paused, manuallyPaused, exiting;
+    private Native.WinEventCallback? foregroundCallback;
+    private nint foregroundHook;
+
+    protected override void OnStartup(StartupEventArgs e)
+    {
+        base.OnStartup(e);
+        string sid = WindowsIdentity.GetCurrent().User?.Value ?? Environment.UserName;
+        string identity = @"Local\GridPilot-" + sid;
+        instanceMutex = new Mutex(true, identity, out bool first);
+        showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, identity + "-Show");
+        if (!first) { showEvent.Set(); Shutdown(); return; }
+        showWait = ThreadPool.RegisterWaitForSingleObject(showEvent, (_, _) => Dispatcher.BeginInvoke(ShowSettings), null, Timeout.Infinite, false);
+        store = new SettingsStore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GridPilot"));
+        var loaded = store.Load(); settings = loaded.Settings;
+        Theme.Apply(settings.Theme);
+        hotkeys = new HotkeyService();
+        CreateTray();
+        hotkeys.DisplayChanged += () => { Diagnostics.Write("Display changed; dismissing grid."); panel?.Dismiss(true); };
+        hotkeys.PreferencesChanged += () => { Diagnostics.Write("Preferences changed; dismissing grid."); panel?.Dismiss(true); Theme.Apply(settings.Theme); };
+        if (!hotkeys.TryApply(Actions(settings), out var shortcutError)) paused = true;
+        UpdateTray();
+        foregroundCallback = (_, _, hwnd, _, _, _, _) =>
+        {
+            if (WindowService.Capture(hwnd, out _) is { } target) lastTarget = target;
+        };
+        foregroundHook = Native.SetWinEventHook(3, 3, 0, foregroundCallback, 0, 0, 2);
+        lastTarget = WindowService.CaptureForeground(out _);
+        DispatcherUnhandledException += OnUnexpectedError;
+        if (!e.Args.Contains("--background") || loaded.Warning is not null || shortcutError is not null)
+            ShowSettings(loaded.Warning ?? shortcutError);
+    }
+
+    private List<HotkeyAction> Actions(AppSettings config)
+    {
+        var actions = new List<HotkeyAction> { new(config.Activation, "Open grid", () => TogglePanel(false)) };
+        if (config.Undo is { } undo) actions.Add(new(undo, "Undo placement", () => _ = UndoAsync()));
+        foreach (var preset in config.Presets.Where(p => p.Shortcut is not null))
+            actions.Add(new(preset.Shortcut!, preset.Name, () =>
+            {
+                // Freeze the selected target when a preset is invoked from an already-open grid.
+                var target = panel is not null ? panel.Target : WindowService.CaptureForeground(out _);
+                panel?.Dismiss(false);
+                if (target is null) Notify("Activate a resizable application window first."); else _ = ApplyPresetAsync(target, preset);
+            }));
+        return actions;
+    }
+
+    private void TogglePanel(bool fromTray)
+    {
+        Diagnostics.Write($"Open grid requested. Busy={windows.Busy}; settingsActive={settingsWindow?.IsActive}; panel={panel is not null}");
+        if (windows.Busy || settingsWindow?.IsActive == true) return;
+        if (panel is not null) { panel.Dismiss(true); return; }
+        string? error = null;
+        var target = fromTray ? lastTarget : WindowService.CaptureForeground(out error);
+        if (target is null || !WindowService.IsSameWindow(target)) { Notify(error ?? "Activate a resizable application window first."); return; }
+        lastTarget = target;
+        Diagnostics.Write($"Captured target process {target.ProcessId}. Creating Focus panel.");
+        var next = new GridPanel(target, settings, windows.CanUndo, (columns, rows) =>
+        {
+            var updated = settings.Clone(); updated.Columns = columns; updated.Rows = rows;
+            return SaveSettings(updated);
+        }, open =>
+        {
+            var updated = settings.Clone(); updated.WindowSidebarOpen = open;
+            return SaveSettings(updated);
+        });
+        panel = next;
+        next.Closed += (_, _) => { if (panel == next) panel = null; };
+        next.PlacementRequested += (selected, region, device) => _ = PlaceAsync(selected, device, region);
+        next.PresetRequested += (selected, preset, device) => _ = preset.Monitor == "current"
+            ? PlaceAsync(selected, device, preset.Region) : ApplyPresetAsync(selected, preset);
+        next.TargetChanged += selected => lastTarget = selected;
+        next.SettingsRequested += ShowSettings;
+        next.UndoRequested += () => _ = UndoAsync();
+        next.Show();
+        Diagnostics.Write("Focus panel shown.");
+    }
+    private async Task ApplyPresetAsync(WindowTarget target, PlacementPreset preset)
+    {
+        var monitors = MonitorService.GetAll();
+        if (monitors.Count == 0) { Notify("No display is available."); return; }
+        var monitor = MonitorService.Resolve(preset.Monitor, target.Handle, monitors);
+        await PlaceAsync(target, monitor.Device, preset.Region);
+    }
+    private async Task PlaceAsync(WindowTarget target, string device, Region region)
+    {
+        var result = await windows.PlaceAsync(target, device, region, settings.Gap);
+        if (result.Success)
+        {
+            lastRegion = region;
+            if (result.Message is { } adjustment) Notify(adjustment);
+        }
+        else Notify(result.Message ?? "The placement could not be applied.");
+        UpdateTray();
+    }
+    private async Task UndoAsync()
+    {
+        panel?.Dismiss(false);
+        var result = await windows.UndoAsync();
+        if (!result.Success) Notify(result.Message ?? "Undo failed.");
+        UpdateTray();
+    }
+
+    private void ShowSettings() => ShowSettings(null);
+    private void ShowSettings(string? warning)
+    {
+        if (exiting) return;
+        panel?.Dismiss(false);
+        if (settingsWindow is not null)
+        {
+            settingsWindow.WindowState = WindowState.Normal; settingsWindow.Activate(); return;
+        }
+        var next = new SettingsWindow(settings, SaveSettings, lastRegion, warning);
+        settingsWindow = next;
+        next.Activated += (_, _) => hotkeys?.TryApply(Array.Empty<HotkeyAction>(), out _);
+        next.Deactivated += (_, _) => RestoreHotkeys();
+        next.Closed += (_, _) => { settingsWindow = null; RestoreHotkeys(); };
+        next.Show();
+    }
+    private void RestoreHotkeys()
+    {
+        if (exiting || paused || hotkeys is null) return;
+        if (!hotkeys.TryApply(Actions(settings), out var error)) { paused = true; Notify(error!); UpdateTray(); }
+    }
+    private string? SaveSettings(AppSettings updated)
+    {
+        if (updated.Validate() is { } invalid) return invalid;
+        if (!hotkeys!.TryApply(Actions(updated), out var error)) return error;
+        try
+        {
+            if (updated.StartAtLogin != settings.StartAtLogin) StartupService.SetEnabled(updated.StartAtLogin);
+            store.Save(updated);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            hotkeys.TryApply(paused ? Array.Empty<HotkeyAction>() : Actions(settings), out _);
+            try { if (updated.StartAtLogin != settings.StartAtLogin) StartupService.SetEnabled(settings.StartAtLogin); } catch (Exception rollback) when (rollback is IOException or UnauthorizedAccessException or System.Security.SecurityException) { Log(rollback); }
+            return "Settings could not be saved: " + ex.Message;
+        }
+        settings = updated.Clone(); paused = manuallyPaused;
+        if (paused) hotkeys.TryApply(Array.Empty<HotkeyAction>(), out _);
+        Theme.Apply(settings.Theme); UpdateTray(); return null;
+    }
+    private void TogglePause()
+    {
+        panel?.Dismiss(true);
+        if (!paused) { hotkeys!.TryApply(Array.Empty<HotkeyAction>(), out _); paused = manuallyPaused = true; }
+        else if (hotkeys!.TryApply(Actions(settings), out var error)) paused = manuallyPaused = false;
+        else Notify(error!);
+        UpdateTray();
+    }
+    private void CreateTray()
+    {
+        trayIcon = CreateIcon();
+        tray = new Forms.NotifyIcon { Icon = trayIcon, Visible = true, Text = "GridPilot" };
+        var menu = new Forms.ContextMenuStrip();
+        menu.Items.Add("Open grid", null, (_, _) => Dispatcher.BeginInvoke(() => TogglePanel(true)));
+        undoItem = new Forms.ToolStripMenuItem("Undo last placement", null, (_, _) => Dispatcher.BeginInvoke(() => _ = UndoAsync())); menu.Items.Add(undoItem);
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("Settings…", null, (_, _) => Dispatcher.BeginInvoke(ShowSettings));
+        pauseItem = new Forms.ToolStripMenuItem("Pause shortcuts", null, (_, _) => Dispatcher.BeginInvoke(TogglePause)); menu.Items.Add(pauseItem);
+        startupItem = new Forms.ToolStripMenuItem("Launch at sign-in", null, (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            var updated = settings.Clone(); updated.StartAtLogin = !updated.StartAtLogin;
+            bool wasPaused = paused;
+            var error = SaveSettings(updated);
+            if (wasPaused) { paused = true; hotkeys!.TryApply(Array.Empty<HotkeyAction>(), out _); }
+            if (error is not null) Notify(error); UpdateTray();
+        })); menu.Items.Add(startupItem);
+        menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("Quit GridPilot", null, (_, _) => Dispatcher.BeginInvoke(() => Shutdown()));
+        menu.Opening += (_, _) => UpdateTray(); tray.ContextMenuStrip = menu;
+        tray.DoubleClick += (_, _) => Dispatcher.BeginInvoke(() => TogglePanel(true));
+        tray.BalloonTipClicked += (_, _) => Dispatcher.BeginInvoke(ShowSettings);
+    }
+    private static System.Drawing.Icon CreateIcon()
+    {
+        using var bitmap = new System.Drawing.Bitmap(32, 32);
+        using var graphics = System.Drawing.Graphics.FromImage(bitmap);
+        graphics.Clear(System.Drawing.Color.Transparent);
+        using var brush = new System.Drawing.SolidBrush(System.Drawing.Color.FromArgb(255, 153, 77));
+        for (int y = 0; y < 2; y++) for (int x = 0; x < 2; x++) graphics.FillRectangle(brush, 3 + x * 15, 3 + y * 15, 11, 11);
+        var handle = bitmap.GetHicon();
+        try { using var temporary = System.Drawing.Icon.FromHandle(handle); return (System.Drawing.Icon)temporary.Clone(); }
+        finally { DestroyIcon(handle); }
+    }
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool DestroyIcon(nint icon);
+    private void UpdateTray()
+    {
+        if (tray is null) return;
+        tray.Text = paused ? "GridPilot · shortcuts paused" : "GridPilot · " + ShortcutBox.Format(settings.Activation);
+        if (pauseItem is not null) pauseItem.Checked = paused;
+        if (undoItem is not null) undoItem.Enabled = windows.CanUndo;
+        if (startupItem is not null) startupItem.Checked = settings.StartAtLogin;
+    }
+    private void Notify(string message)
+    {
+        Diagnostics.Write(message);
+        if (tray is null) return;
+        tray.BalloonTipTitle = "GridPilot"; tray.BalloonTipText = message; tray.BalloonTipIcon = Forms.ToolTipIcon.Info; tray.ShowBalloonTip(5000);
+    }
+    private void OnUnexpectedError(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        Log(e.Exception); panel?.Dismiss(false); Notify("GridPilot could not complete that action. Details are in the local error log."); e.Handled = true;
+    }
+    private static void Log(Exception exception)
+    {
+        try
+        {
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GridPilot"); Directory.CreateDirectory(path);
+            File.AppendAllText(Path.Combine(path, "errors.log"), DateTimeOffset.Now + " " + exception + Environment.NewLine);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+    protected override void OnExit(ExitEventArgs e)
+    {
+        exiting = true;
+        panel?.Dismiss(false); settingsWindow?.Close();
+        if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook);
+        hotkeys?.Dispose();
+        if (tray is not null) { tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); }
+        trayIcon?.Dispose(); showWait?.Unregister(null); showEvent?.Dispose(); instanceMutex?.Dispose();
+        base.OnExit(e);
+    }
+}

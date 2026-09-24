@@ -1,0 +1,34 @@
+name: Bug report
+description: Something does not work as expected.
+title: "[Bug] "
+labels: ["type:bug", "status:triage"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include the application/window involved and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. Open…\n2. Press…\n3. Click…"
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: GridPilot version
+      placeholder: "Release name or commit, if known"
+  - type: textarea
+    id: displays
+    attributes:
+      label: Windows and displays
+      description: Windows version, monitor count, resolution and scaling of each display; mention administrator/fullscreen apps.
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots or logs
+      description: Drag screenshots here if useful. Remove private information before attaching them.

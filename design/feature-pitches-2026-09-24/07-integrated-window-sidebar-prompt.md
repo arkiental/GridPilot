@@ -1,0 +1,20 @@
+# Integrated window sidebar
+
+Proposed interface illustration generated with built-in image_gen, using the user's annotated current-UI screenshot as the reference.
+
+Use case: ui-mockup, precise reference edit. Generate ONE high-resolution refined UI illustration using the supplied screenshot and hand-drawn sketch. The user wants the window picker INTEGRATED BESIDE the existing GridPilot interface, exactly in the tall right-side area they outlined in red. Treat the red hand-drawn marks ONLY as a structural annotation; REMOVE all hand-drawn lines in the result.
+
+Preserve the entire existing LEFT GridPilot panel's layout and proportions from the reference: orange four-square logo and GridPilot, Undo/settings/close icons; current selected application green KeePassXC icon and title "KeePassXC"; Main display / 6 × 6 toolbar; LARGE screenshot of the real-looking desktop with cyan fractal wallpaper and overlapping dark app windows, continuous thin 6-by-6 placement grid; red rectangular current-target outline; the five orange/gray visual placement presets Left, Right, Thirds, Fill, More; footer. This desktop screenshot MUST REMAIN VISIBLE and large. Do not replace it with a window overview, do not shrink it into a tiny thumbnail, do not change to the previous 4x4 mode-switch concept.
+
+Build a polished ATTACHED RIGHT SIDEBAR in the sketched area, flush with the left panel, same height, approximately 30% of the total width, while the original left panel takes 70%. One unified application with subtle vertical divider and shared charcoal surface. Dark gray #292929, orange #FF994D accents, light gray readable labels. No red outer sidebar border, red only for selected application indication. Output landscape around 1600x1050 or similarly fitting proportions, crisp front-facing screenshot mockup, panel fills almost entire canvas with minimal margins, no marketing headings outside application.
+
+Sidebar header: a small layers icon, "Windows", a subtle orange "16" count badge, and small collapse chevron. Under it a compact search field "Find a window…". Below, EXACTLY SIXTEEN compact WINDOW THUMBNAIL CARDS, arranged TWO COLUMNS and EIGHT ROWS, ALL 16 visible within the sidebar. Each miniature card has a recognizable real-looking screenshot in its upper section and tiny app icon plus short app name below. Tight 6–8px gaps, restrained rounded corners, legible concise titles, meaningful varied thumbnail content. Not generic blank icons; use recognizably different contents. Side cards numbered discreetly 1 through 16 in reading order.
+Row1: 1 Chrome (browser references), 2 Explorer (folder files).
+Row2: 3 Discord (chat), 4 Spotify (music).
+Row3: 5 Blender (3D model), 6 PureRef (reference photos).
+Row4: 7 KeePassXC (generic password manager list, NO real secrets), 8 Painter (3D texturing).
+Row5: 9 Photoshop (image layers), 10 VS Code (code).
+Row6: 11 Terminal (terminal text), 12 Notes (text).
+Row7: 13 Acrobat (PDF), 14 OBS Studio (capture).
+Row8: 15 Explorer (different folder), 16 Task Manager (performance graphs).
+The 7 KeePassXC sidebar card is SELECTED with a sharp RED border and subtle red glow, matching the red selected window rectangle in the main screenshot and the KeePassXC name/icon at top left. Put a small normal mouse cursor on this selected sidebar card, showing the one-click selection. All other cards have thin neutral gray borders. Orange is reserved for brand, count badge, and placement controls. At bottom of sidebar a tiny single-line hint "Click to select a window". The illustration must communicate selecting a hidden window from the right sidebar WHILE still seeing its position and the placement grid on the left. Windows in sidebar include ones hidden behind others in the screenshot; this is the main benefit. Avoid exploded 3D layers, floating external dialogs, extra feature panes, bright gradients, excessive glow, large explanatory text, watermarks. This is a proposed interface illustration, not a claim that it is already implemented.

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GridPilot · Five interface concepts</title>
+<style>
+  *{box-sizing:border-box} body{margin:0;background:#101417;color:#e9eeef;font:15px/1.5 system-ui,Segoe UI,sans-serif} main{max-width:1280px;margin:auto;padding:36px 28px 48px} header{display:flex;gap:24px;align-items:end;justify-content:space-between;margin-bottom:24px} h1{font-size:28px;letter-spacing:-.7px;margin:0;font-weight:600} .eyebrow{color:#86c9ba;font-size:12px;letter-spacing:.14em;margin-bottom:7px} p{color:#aeb9bc;margin:8px 0} a{color:#9fddd0} nav{display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin:24px 0} button{font:inherit;cursor:pointer;color:inherit;background:transparent;border:1px solid #303b3e;border-radius:7px;padding:7px;text-align:left} button:hover,button:focus-visible{border-color:#b1dcd2;outline:none} button[aria-selected=true]{border-color:#7fc5b4;background:#192b27} button img{display:block;width:100%;aspect-ratio:4/3;object-fit:contain;background:#151b1e;border-radius:3px} button span{display:block;font-size:13px;padding:7px 4px 2px} .number{display:inline;padding:0;color:#91a3a8;font-size:11px;margin-right:6px} figure{margin:0} #hero{width:100%;max-height:80vh;object-fit:contain;display:block;background:#0c1012} figcaption{display:flex;gap:24px;justify-content:space-between;align-items:start;padding:18px 0 24px;border-bottom:1px solid #2a3538} h2{font-size:20px;margin:0;font-weight:600} #description{max-width:750px;margin:5px 0 0} .caption-links{display:flex;gap:18px;white-space:nowrap;font-size:13px;padding-top:5px} .note{max-width:850px;font-size:13px;margin-top:24px} .note strong{color:#e9eeef;font-weight:500} @media(max-width:700px){main{padding:22px 14px}header{display:block}h1{font-size:24px}nav{gap:6px}button{padding:4px}button span{font-size:10px;padding:5px 0}.number{display:none}figcaption{display:block}.caption-links{margin-top:12px}#hero{max-height:none}}
+</style>
+</head>
+<body><main>
+<header><div><div class="eyebrow">GRIDPILOT / DESIGN EXPLORATION</div><h1>Five ways to see your desktop.</h1><p>A display thumbnail becomes the placement surface.</p></div><a href="README.md">Design brief ↗</a></header>
+<nav role="tablist" aria-label="Interface concepts">
+<button id="tab-01" role="tab" aria-controls="concept-panel" aria-selected="true" data-index="0"><img src="01-focus.png" alt=""><span><span class="number">01</span>Focus</span></button>
+<button id="tab-02" role="tab" aria-controls="concept-panel" aria-selected="false" data-index="1"><img src="02-paper.png" alt=""><span><span class="number">02</span>Paper</span></button>
+<button id="tab-03" role="tab" aria-controls="concept-panel" aria-selected="false" data-index="2"><img src="03-studio.png" alt=""><span><span class="number">03</span>Studio</span></button>
+<button id="tab-04" role="tab" aria-controls="concept-panel" aria-selected="false" data-index="3"><img src="04-ribbon.png" alt=""><span><span class="number">04</span>Ribbon</span></button>
+<button id="tab-05" role="tab" aria-controls="concept-panel" aria-selected="false" data-index="4"><img src="05-atlas.png" alt=""><span><span class="number">05</span>Atlas</span></button>
+</nav>
+<section id="concept-panel" role="tabpanel" aria-labelledby="tab-01"><figure>
+<a id="fullsize-image" href="01-focus.png" target="_blank"><img id="hero" src="01-focus.png" alt="Focus: a compact dark utility with a placement grid over a desktop screenshot"></a>
+<figcaption><div><h2 id="name">01 / Focus</h2><p id="description">A compact dark panel with the preview first and one row of visual presets. The strongest starting point for everyday use.</p></div><div class="caption-links"><a id="fullsize-link" href="01-focus.png" target="_blank">Full-size image ↗</a><a href="prompts.md">Prompts</a></div></figcaption>
+</figure></section>
+<p class="note"><strong>Shared interaction:</strong> capture the selected display before the panel opens, retain a low-resolution thumbnail, and draw a translucent grid over it. Keep the thumbnail frozen while dragging; apply the window placement on release. The thumbnails in these mockups are illustrative. These concepts do not change the running application.</p>
+</main>
+<script>
+(()=>{const concepts=[
+{name:'01 / Focus',file:'01-focus.png',description:'A compact dark panel with the preview first and one row of visual presets. The strongest starting point for everyday use.'},
+{name:'02 / Paper',file:'02-paper.png',description:'A lighter Windows-native direction: warm neutral surfaces, precise blue selection, and clean typographic hierarchy.'},
+{name:'03 / Studio',file:'03-studio.png',description:'A wide preview beside a dedicated saved-placement rail. Designed for frequent use of custom layouts.'},
+{name:'04 / Ribbon',file:'04-ribbon.png',description:'A shallow horizontal palette with controls beside the screenshot. The most economical use of vertical space.'},
+{name:'05 / Atlas',file:'05-atlas.png',description:'A spatial overview of display thumbnails. Choose a monitor directly, then select its placement cells.'}
+];const tabs=[...document.querySelectorAll('[role=tab]')];let selected=0;function show(index){selected=(index+concepts.length)%concepts.length;const item=concepts[selected];tabs.forEach((tab,i)=>{tab.setAttribute('aria-selected',String(i===selected));tab.tabIndex=i===selected?0:-1});document.getElementById('concept-panel').setAttribute('aria-labelledby',tabs[selected].id);document.getElementById('hero').src=item.file;document.getElementById('hero').alt=item.name+': '+item.description;document.getElementById('name').textContent=item.name;document.getElementById('description').textContent=item.description;document.getElementById('fullsize-image').href=item.file;document.getElementById('fullsize-link').href=item.file;}tabs.forEach((tab,index)=>{tab.addEventListener('click',()=>show(index));tab.addEventListener('keydown',event=>{if(!['ArrowLeft','ArrowRight','Home','End'].includes(event.key))return;event.preventDefault();show(event.key==='Home'?0:event.key==='End'?4:selected+(event.key==='ArrowRight'?1:-1));tabs[selected].focus()})});show(0)})();
+</script></body></html>

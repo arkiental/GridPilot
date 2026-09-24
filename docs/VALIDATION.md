@@ -1,0 +1,56 @@
+# Validation
+
+## Implemented scope
+
+Configurable grid; explicit target capture and Ctrl-click switching; front-to-back overlap cycling and named window chooser; reverse drag; live desktop preview; release-to-commit; Escape/outside/lost-capture cancellation; keyboard selection; proportional preset editor and global shortcuts; multiple-monitor selection and destination rules; DPI-scaled gaps; taskbar-aware geometry; tray controls; safe persistent settings; system/light/dark/high-contrast appearance; optional launch at sign-in; single-instance handling; verified undo, including maximized state; portable self-contained packaging and per-user installation scripts.
+
+## Automated verification
+
+Release solution builds with warnings treated as errors: zero warnings and zero errors. The integrated-sidebar regression run passed **2,736 assertions**. The test executable checks:
+
+- Physical-pixel geometry at 100%, 125%, 150%, 175%, and 200% scaling.
+- Negative desktop origins, fractional/non-divisible widths, reverse selections, 1–12 grid divisions, odd gutters, zero gaps, and edge margins.
+- Settings validation, isolated editing, unique shortcuts, durable round trips, damaged JSON, invalid-but-valid-JSON data, backup recovery, and preserving a good backup after recovery.
+- Real placement of disposable windows, comparing visible DWM edges with intended geometry.
+- Repeated halves, thirds, full-work-area placements, zero-gap quarters, exact single cells, undo, maximized restore/undo, disappeared targets/displays, and fixed-size rejection.
+- Single-cell placements with independent minimum width, minimum height, and both dimensions constrained: four corners and an interior cell, later layout stability, fresh-service and same-service repeated clicks without intervening Undo, exact Undo, maximized Undo, and explanatory adjustment feedback. Oversized minima, smaller maximum-size responses, and windows that refuse movement still fail and roll back.
+- Centered/clamped minimum-size geometry across negative origins, portrait work areas, and multiple DPI values, preserving all outer gaps.
+- A fixture that pauses its first resize handler for 375 ms still ends at the exact requested size, both when starting elsewhere and when already at the requested origin. The test derives the shrink from the fixture's size and verifies that the delay hook ran. Queued asynchronous requests must not be confused with a minimum-size constraint or leave the window at a temporary probe origin.
+- Native hotkey registration, conflict detection, reassignment, pause, and release.
+- Screenshot/work-area mapping for taskbars on all four edges, negative monitor origins, portrait displays, and scaling combinations; thumbnail dimensions bounded to 960 pixels on the longer edge.
+- Actual desktop capture, frozen image lifetime, correct BGR pixels at the fixture's mapped location, asynchronous app-icon extraction, and unavailable-app fallback.
+- Front-to-back hit testing, exposed and fully occluded windows, same-process window identity, explicit region holes, empty regions, blocked front windows, taskbar exclusion, click-to-desktop mapping, forward/reverse cycling, pointer jitter, and monitor/stack changes.
+- Two actual overlapping fixture windows in one process; native stacking order; targets disabled by modal dialogs after selection; minimized and closed stale targets; target-switch events; updated red-marker bounds; ordinary placement and saved-preset routing to the newly selected window. Panel logic tests use a hidden panel and do not inject mouse or keyboard input.
+- Sixteen fully overlapping fixture windows: searchable sidebar identities, exact production WPF styles, DWM registration on the real panel, and a pixel assertion proving that a covered green source renders independently of the purple window covering it. Thumbnail-center hit testing resolves to the intended button. Sidebar selection updates the target and grid marker; blocked targets cannot replace the target; commit uses the selected HWND.
+- Sidebar collapse, reopen, filtering to zero results, and close release/recreate native registrations as appropriate. Ctrl+F focuses search and Ctrl+Z in search does not trigger placement Undo. Sidebar visibility round-trips through persisted settings.
+- Thumbnail aspect-preserving crop and proportional scroll clipping at 100%, 125%, 150%, 200%, and 300%, including portrait and 8K source dimensions. Sixteen cards fit without scrolling when the viewport has sufficient height.
+
+The native suite enumerates and tests every connected monitor. Earlier tests used one 7680 × 4320 display at 150%; the Focus capture/placement run used 1920 × 1200 at 150%, and visual inspection used 7680 × 4320 at 200%. The single-cell regression run used one 3840 × 2160 display at 100%. Focused sidebar checks passed at 3840 × 2160 / 100%; the complete integrated-sidebar suite passed at 7680 × 4320 / 200%. Simulated geometry tests cover other scaling/origin combinations; they do not replace multi-monitor hardware checks.
+
+## Desktop interface checks
+
+The Windows Computer Use interface was used to inspect the real app, save settings, activate the grid with its registered shortcut, inspect captured target/monitor labels, extend a selection with the keyboard, apply it with Enter, cancel with Escape, and apply a reverse-direction mouse drag to a disposable window. A preset shortcut was recorded through the editor, verified in the saved settings, invoked against the test window, and undone through the grid panel. Temporary test preferences were restored afterward. Dark-theme text/control contrast was corrected after visual inspection.
+
+The compact panel is a tool window in normal operation. The `--ui-test` switch exposes it as a regular taskbar window so desktop automation can discover and inspect it; the selection and placement paths are shared with normal operation.
+
+Focus-specific visual inspection confirmed the charcoal/orange layout, real desktop screenshot, application icon, red target outline, continuous grid, and five visual preset controls at 7680 × 4320 / 200% and 3840 × 2160 / 100%. Desktop input and resolution changed during this session. The user stopped Computer Use with physical Escape before the complete popup/keyboard smoke test finished, so that final interactive coverage remains outstanding; no further input automation was performed.
+
+The integrated sidebar was subsequently inspected through a read-only Computer Use screenshot of the actual test panel with all sixteen fixture cards and the production control templates. No mouse or keyboard input was injected. Native fixture tests isolate their rendering panel from unrelated foreground activity; the production panel retains outside-click/deactivation cancellation. Source thumbnails are live, and the main screenshot/target geometry remain frozen until reopening.
+
+## Critic review
+
+An independent critic agent reviewed the native foundation and complete application. Findings addressed include invalid-settings recovery, missing destination-DPI propagation, verification of asynchronous undo, monitor-disconnect restoration, panel target identity, preset monitor selection, small-work-area settings sizing, initial keyboard input, final drag endpoint, backup preservation, manual shortcut pause, and high-contrast selected text.
+
+The Focus review additionally addressed slow shell icon providers blocking activation (now background loading with an immutable-target guard) and popup/deactivation cancellation ordering (now checks actual foreground-process ownership both on deactivation and popup closure). Capture cleanup and the preview's physical-pixel coordinate mapping were also reviewed.
+
+The overlap-selection critic review verified target propagation to drag/preset/global-shortcut paths, release-only picking, bounded native catalog capture, explicit handling of blocked front windows, and icon-request generation guards. The modal-owner check was moved into shared eligibility validation so a dialog opened after selection also prevents placement. The final review found no remaining blocking defects.
+
+The single-cell critic review caught an asynchronous-response ambiguity and a repeated-placement edge case: unchanged bounds can indicate either a busy app or a window already at its minimum size. When necessary, one bounded two-physical-pixel origin probe still requests the original size to establish an actual response. Two matching larger resize responses establish the minimum; two samples must match the final requested or adjusted destination before success. The original Undo snapshot is preserved through probing and adjustment. The final independent implementation review found no remaining blocking defects.
+
+The sidebar critic review checked native thumbnail lifecycle, clipping, destination DPI, search focus, stale identities and placement routing. It caught missing WPF hit-test coverage beneath native thumbnail pixels; the card now supplies a full hit-test surface, verified by InputHitTest at the image center. The reviewed implementation had no remaining blocking defects.
+
+## Remaining hardware/application coverage
+
+Before broad distribution, repeat the desktop checks with two or more physical monitors at different scaling settings, portrait orientation, monitors left/above the primary display, live display disconnect/reconnect, Remote Desktop transitions, administrator-run applications, and a representative set of third-party custom-framed windows.
+
+Application minimum sizes are accommodated only after repeated stable resize responses and verified final geometry. Other unsupported constraints are reported failures, with bounded corrections and verified rollback. The proposed 100 ms warm-activation target is not a certified performance guarantee; one observed warm activation during UI checking was approximately 73 ms, while first activation was approximately 225 ms on the development machine.

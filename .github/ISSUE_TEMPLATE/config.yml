@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: How the tracker and agent work
+    url: https://github.com/arkiental/GridPilot/blob/main/docs/GITHUB_WORKFLOW.md
+    about: A short guide to reporting issues, approving work, and reviewing fixes.
