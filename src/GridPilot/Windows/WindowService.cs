@@ -10,7 +10,8 @@ public sealed class WindowService
 {
     private sealed record Snapshot(WindowTarget Target, Native.WindowPlacement Placement, PixelRect Outer, DisplayMonitor Monitor);
     private Snapshot? undo;
-    public bool CanUndo => undo is not null && IsSameWindow(undo.Target);
+    private List<Snapshot>? batchUndo;
+    public bool CanUndo => batchUndo?.Any(s => IsSameWindow(s.Target)) == true || undo is not null && IsSameWindow(undo.Target);
     public bool Busy { get; private set; }
 
     public static bool IsSameWindow(WindowTarget target) => Native.IsWindow(target.Handle) &&
@@ -131,6 +132,7 @@ public sealed class WindowService
                         continue;
                     }
                     undo = before;
+                    batchUndo = null;
                     Native.SetForegroundWindow(target.Handle);
                     return new(true, destination.Near(requested) ? null : $"Placed at this application's minimum size ({settled.Width} × {settled.Height} px). Undo is available.");
                 }
@@ -165,14 +167,14 @@ public sealed class WindowService
                 previousSizeResponse = larger ? settled : null;
             }
             bool rolledBack = await RestoreAsync(before);
-            if (!rolledBack) undo = before;
+            if (!rolledBack) { undo = before; batchUndo = null; }
             return new(false, "This application did not accept a stable size or position. " +
                 (rolledBack ? "Its previous placement was restored; try a larger selection." : "Restoration could not be verified. You can retry Undo from the tray."));
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
             bool restored = before is null || await RestoreAsync(before);
-            if (!restored) undo = before;
+            if (!restored) { undo = before; batchUndo = null; }
             return new(false, ex.Message + (restored ? "" : " Restoration could not be verified; try Undo from the tray."));
         }
         finally { Busy = false; }
@@ -221,6 +223,17 @@ public sealed class WindowService
     public async Task<PlacementResult> UndoAsync()
     {
         if (Busy) return new(false, "A placement is already in progress.");
+        if (batchUndo is { Count: > 0 })
+        {
+            Busy = true;
+            try
+            {
+                var remaining = await RestoreGroupAsync(batchUndo, RestoreBatchSnapshotAsync);
+                batchUndo = remaining.Count == 0 ? null : remaining;
+                return new(remaining.Count == 0, remaining.Count == 0 ? null : "Some windows could not be restored. Retry Undo.");
+            }
+            finally { Busy = false; }
+        }
         if (undo is null || !IsSameWindow(undo.Target)) return new(false, "There is no previous placement to restore.");
         Busy = true;
         try
@@ -230,5 +243,87 @@ public sealed class WindowService
             return new(restored, restored ? null : "The previous placement could not be restored.");
         }
         finally { Busy = false; }
+    }
+
+    internal async Task<PlacementResult> ArrangeAsync(DisplayMonitor expected, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements)
+    {
+        if (Busy) return new(false, "A placement is already in progress.");
+        if (placements.Count is < 1 or > 32 || placements.Select(p => (p.Target.Handle, p.Target.ProcessId)).Distinct().Count() != placements.Count)
+            return new(false, "Select 1–32 distinct windows.");
+        Busy = true;
+        var snapshots = new List<Snapshot>();
+        var changed = new List<Snapshot>();
+        try
+        {
+            void CheckDisplay()
+            {
+                var current = MonitorService.GetAll().FirstOrDefault(m => m.Device == expected.Device);
+                if (current is null || current.Work != expected.Work || current.Dpi != expected.Dpi)
+                    throw new InvalidOperationException("The display changed. Open Auto arrange again.");
+            }
+            CheckDisplay();
+            foreach (var p in placements)
+            {
+                if (!p.Bounds.IsValid || p.Bounds.Left < expected.Work.Left || p.Bounds.Top < expected.Work.Top || p.Bounds.Right > expected.Work.Right || p.Bounds.Bottom > expected.Work.Bottom)
+                    throw new InvalidOperationException("The plan no longer fits this display.");
+                if (!IsSameWindow(p.Target) || Capture(p.Target.Handle, out _) is null || TakeSnapshot(p.Target) is not { } before)
+                    throw new InvalidOperationException("A selected window is unavailable. Refresh the window list.");
+                snapshots.Add(before);
+            }
+            for (int i = 0; i < placements.Count; i++)
+            {
+                CheckDisplay();
+                var p = placements[i];
+                if (!IsSameWindow(p.Target) || Capture(p.Target.Handle, out _) is null) throw new InvalidOperationException("A selected window became unavailable.");
+                changed.Add(snapshots[i]);
+                if (Native.IsZoomed(p.Target.Handle))
+                {
+                    Native.ShowWindowAsync(p.Target.Handle, 9);
+                    for (int retry = 0; retry < 8 && Native.IsZoomed(p.Target.Handle); retry++) await Task.Delay(25);
+                }
+                bool accepted = false;
+                for (int retry = 0; retry < 3; retry++)
+                {
+                    if (!IsSameWindow(p.Target) || !SetVisible(p.Target.Handle, p.Bounds)) break;
+                    await Task.Delay(125);
+                    if (!IsSameWindow(p.Target)) break;
+                    var first = VisibleBounds(p.Target.Handle);
+                    await Task.Delay(75);
+                    if (IsSameWindow(p.Target) && first.Near(p.Bounds) && VisibleBounds(p.Target.Handle).Near(p.Bounds)) { accepted = true; break; }
+                }
+                if (!accepted) throw new InvalidOperationException($"{p.Target.Title} rejected its tile (often an app minimum size). Increase its minimum or exclude it.");
+            }
+            CheckDisplay();
+            if (placements.Any(p => !IsSameWindow(p.Target) || !VisibleBounds(p.Target.Handle).Near(p.Bounds)))
+                throw new InvalidOperationException("A window changed size while arranging.");
+            batchUndo = snapshots; undo = null;
+            return new(true, $"Arranged {placements.Count} windows. Undo restores the entire arrangement.");
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
+        {
+            var remaining = await RestoreGroupAsync(changed.AsEnumerable().Reverse(), RestoreBatchSnapshotAsync);
+            if (remaining.Count > 0) { batchUndo = remaining; undo = null; }
+            return new(false, ex.Message + (remaining.Count > 0 ? " Some restorations could not be verified; retry Undo." : " Previous placements restored."));
+        }
+        finally { Busy = false; }
+    }
+
+    private static async Task<bool> RestoreBatchSnapshotAsync(Snapshot snapshot) =>
+        !IsSameWindow(snapshot.Target) || await RestoreAsync(snapshot);
+
+    internal static async Task<List<T>> RestoreGroupAsync<T>(IEnumerable<T> snapshots, Func<T, Task<bool>> restore)
+    {
+        var remaining = new List<T>();
+        foreach (var snapshot in snapshots)
+        {
+            try { if (!await restore(snapshot)) remaining.Add(snapshot); }
+            catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.ComponentModel.Win32Exception)
+            {
+                // Continue the group and retain uncertain snapshots for a later Undo.
+                Diagnostics.Write("Batch restoration could not be verified: " + ex.Message);
+                remaining.Add(snapshot);
+            }
+        }
+        return remaining;
     }
 }

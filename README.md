@@ -1,5 +1,7 @@
 # GridPilot
 
+**Auto arrange:** choose a display in Focus and click **Auto arrange** to preview a layout for its windows, exclude individual windows, and remember per-app aspect/grid-shape and minimum-size rules. Apply explicitly; Undo restores the entire group. See [usage and constraints](docs/AUTO_ARRANGE.md).
+
 A native Windows 11 window-placement utility, inspired by Divvy's grid interaction with an independent interface. Built with C#, WPF, and Win32 on .NET 10.
 
 [Report a bug or request a feature](https://github.com/arkiental/GridPilot/issues/new/choose) · [Feature tracker](https://github.com/arkiental/GridPilot/issues?q=is%3Aissue) · [GitHub and agent workflow](docs/GITHUB_WORKFLOW.md) · [Downloads](https://github.com/arkiental/GridPilot/releases)

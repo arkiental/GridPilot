@@ -31,6 +31,7 @@ public sealed class AppSettings
     public bool StartAtLogin { get; set; }
     public string Theme { get; set; } = "Dark";
     public bool WindowSidebarOpen { get; set; } = true;
+    public List<ArrangementPreference> ArrangementPreferences { get; set; } = [];
     public List<PlacementPreset> Presets { get; set; } = Defaults();
 
     public AppSettings Clone() => JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(this))!;
@@ -38,6 +39,9 @@ public sealed class AppSettings
     public string? Validate()
     {
         if (Version != 1) return "This settings file was made by a different version of GridPilot.";
+        if (ArrangementPreferences is null || ArrangementPreferences.Count > 256 || ArrangementPreferences.Any(p => p is null || !p.IsValid) ||
+            ArrangementPreferences.Select(p => p.AppId).Distinct(StringComparer.OrdinalIgnoreCase).Count() != ArrangementPreferences.Count)
+            return "Automatic arrangement needs valid, unique application preferences (up to 256).";
         if (Columns is < 1 or > 12 || Rows is < 1 or > 12) return "Rows and columns must be between 1 and 12.";
         if (!double.IsFinite(Gap) || Gap is < 0 or > 64) return "Gap must be between 0 and 64.";
         if (Theme is not ("System" or "Light" or "Dark")) return "Choose System, Light, or Dark appearance.";

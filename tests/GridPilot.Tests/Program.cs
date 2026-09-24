@@ -11,7 +11,7 @@ using System.Windows.Media;
 
 namespace GridPilot.Tests;
 
-internal static class Program
+internal static partial class Program
 {
     private static int assertions;
     private static void Assert(bool value, string message)
@@ -56,6 +56,7 @@ internal static class Program
     }
     private static void CoreTests()
     {
+        ArrangementTests();
         var work = new PixelRect(-1920, -300, 0, 780);
         Assert(PlacementMath.Calculate(work, Region.Full, 8, 96) == new PixelRect(-1912, -292, -8, 772), "negative desktop origin");
         Assert(PlacementMath.Calculate(work, Region.Full, 8, 192) == new PixelRect(-1904, -284, -16, 764), "200% gap conversion");
@@ -378,6 +379,7 @@ internal static class Program
         finally { if (!fixedFixture.HasExited) { fixedFixture.Kill(); await fixedFixture.WaitForExitAsync(); } }
 
         await MinimumPlacementTests();
+        await ArrangementNativeTests();
         await NativePickingTests();
         await SidebarNativeTests();
         Console.WriteLine("Native: real window movement, visible borders, undo, maximized state, constraints, display fallback and hotkeys passed.");

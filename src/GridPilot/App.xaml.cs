@@ -22,6 +22,7 @@ public partial class App : Application
     private AppSettings settings = new();
     private GridPanel? panel;
     private SettingsWindow? settingsWindow;
+    private AutoArrangeWindow? arrangeWindow;
     private WindowTarget? lastTarget;
     private Region? lastRegion;
     private bool paused, manuallyPaused, exiting;
@@ -75,7 +76,8 @@ public partial class App : Application
     private void TogglePanel(bool fromTray)
     {
         Diagnostics.Write($"Open grid requested. Busy={windows.Busy}; settingsActive={settingsWindow?.IsActive}; panel={panel is not null}");
-        if (windows.Busy || settingsWindow?.IsActive == true) return;
+        if (windows.Busy || arrangeWindow is not null) return;
+        if (settingsWindow is not null) { settingsWindow.Activate(); return; }
         if (panel is not null) { panel.Dismiss(true); return; }
         string? error = null;
         var target = fromTray ? lastTarget : WindowService.CaptureForeground(out error);
@@ -99,8 +101,28 @@ public partial class App : Application
         next.TargetChanged += selected => lastTarget = selected;
         next.SettingsRequested += ShowSettings;
         next.UndoRequested += () => _ = UndoAsync();
+        next.AutoArrangeRequested += ShowAutoArrange;
         next.Show();
         Diagnostics.Write("Focus panel shown.");
+    }
+    private void ShowAutoArrange(DisplayMonitor monitor)
+    {
+        var next = new AutoArrangeWindow(monitor, settings, proposed =>
+        {
+            // The sheet owns only arrangement preferences. Preserve any concurrent tray
+            // setting changes instead of replacing them with its opening-time snapshot.
+            var updated = settings.Clone(); updated.ArrangementPreferences = proposed.ArrangementPreferences;
+            return SaveSettings(updated);
+        }, (display, placements) => _ = ArrangeAsync(display, placements));
+        arrangeWindow = next;
+        hotkeys?.TryApply(Array.Empty<HotkeyAction>(), out _);
+        next.Closed += (_, _) => { arrangeWindow = null; RestoreHotkeys(); };
+        next.Show();
+    }
+    private async Task ArrangeAsync(DisplayMonitor monitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements)
+    {
+        var result = await windows.ArrangeAsync(monitor, placements);
+        Notify(result.Message ?? (result.Success ? "Windows arranged." : "Arrangement failed.")); UpdateTray();
     }
     private async Task ApplyPresetAsync(WindowTarget target, PlacementPreset preset)
     {
@@ -132,6 +154,7 @@ public partial class App : Application
     private void ShowSettings(string? warning)
     {
         if (exiting) return;
+        if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
         panel?.Dismiss(false);
         if (settingsWindow is not null)
         {
@@ -243,7 +266,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         exiting = true;
-        panel?.Dismiss(false); settingsWindow?.Close();
+        panel?.Dismiss(false); settingsWindow?.Close(); arrangeWindow?.Close();
         if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook);
         hotkeys?.Dispose();
         if (tray is not null) { tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); }

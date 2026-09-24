@@ -30,6 +30,7 @@ public partial class GridPanel : Window
     public event Action<WindowTarget>? TargetChanged;
     public event Action? SettingsRequested;
     public event Action? UndoRequested;
+    public event Action<DisplayMonitor>? AutoArrangeRequested;
 
     public GridPanel(WindowTarget target, AppSettings settings, bool canUndo, Func<int, int, string?> saveGrid, Func<bool, string?>? saveSidebar = null)
     {
@@ -331,6 +332,11 @@ public partial class GridPanel : Window
         new PlacementPreset { Name = "Right third", Region = new(2d / 3, 0, 1, 1) }
     }, false);
     private void MoreClick(object sender, RoutedEventArgs e) => OpenPresets(MoreButton, settings.Presets, true);
+    private void AutoArrangeClick(object sender, RoutedEventArgs e)
+    {
+        if (MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
+        Dismiss(false); AutoArrangeRequested?.Invoke(monitor);
+    }
     public void Dismiss(bool restoreFocus)
     {
         if (closing) return;
