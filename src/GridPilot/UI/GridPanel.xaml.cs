@@ -25,7 +25,7 @@ public partial class GridPanel : Window
     internal PanelBackdrop Backdrop { get; }
     private DisplayMonitor panelMonitor = null!;
     public WindowTarget Target => target;
-    internal bool DismissOnDeactivate { get; set; } = true;
+    internal bool DismissOnDeactivate { get; set; }
     public event Action<WindowTarget, Region, string>? PlacementRequested;
     public event Action<WindowTarget, PlacementPreset, string>? PresetRequested;
     public event Action<WindowTarget>? TargetChanged;

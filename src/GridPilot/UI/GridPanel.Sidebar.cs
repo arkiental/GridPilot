@@ -105,6 +105,8 @@ public partial class GridPanel
     internal void SelectSidebarWindow(PreviewWindowEntry entry)
     {
         if (closing) return;
+        // Cards retain their original identity, but monitor routing must use refreshed geometry.
+        entry = capturedWindows.FirstOrDefault(current => Same(current.Target, entry.Target)) ?? entry;
         // Validate before touching either target or destination. A stale tile cannot redirect a placement.
         if (PreviewWindows.Validate(entry) is { } error) { SelectionLabel.Text = error; return; }
         PresetsPopup.IsOpen = GridPopup.IsOpen = false; ClearOverlap();

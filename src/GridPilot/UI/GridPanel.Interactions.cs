@@ -104,7 +104,7 @@ public partial class GridPanel
         }
         var destination = swapCandidates[swapIndex];
         if (PreviewWindows.Validate(destination) is { } error) { SelectionLabel.Text = error; return; }
-        originalGeometry = new[] { (swapSource.Target, swapSource.Bounds), (destination.Target, destination.Bounds) };
+        originalGeometry = DisplayEntries(monitor).Select(e => (e.Target, e.Bounds)).ToArray();
         var plan = PlacementInteractions.Swap(monitor.Work, Geometry(swapSource), Geometry(destination));
         ShowInteractionPlan(monitor, plan);
         if (plan.Success) SelectionLabel.Text = $"Swap with {destination.Target.Title} ({swapIndex + 1}/{swapCandidates.Count}) · Exact sizes shown · Release";
@@ -136,7 +136,7 @@ public partial class GridPanel
         cachedSelection = null; cachedPlan = null;
         pendingPlacements.Clear(); GridControl.Reset();
         UndoButton.IsEnabled = FooterUndoButton.IsEnabled = canUndo;
-        SelectionLabel.Text = result.Message ?? (result.Success ? "Placed � Continue arranging or Escape to close" : "Placement failed");
+        SelectionLabel.Text = result.Message ?? (result.Success ? "Placed · Continue arranging or Escape to close" : "Placement failed");
         SelectionLabel.ToolTip = SelectionLabel.Text;
         _ = RefreshPlacementPreviewAsync();
     }
@@ -145,12 +145,12 @@ public partial class GridPanel
         // Hide only our HWND before capture; never freeze GridPilot into its own desktop image.
         // The existing sidebar thumbnail surfaces remain owned by this panel.
         int generation = ++captureGeneration;
+        bool ownedFocusBeforeHide = Native.GetForegroundWindow() == handle;
         placementPending = true; GridControl.IsEnabled = false; preview.Hide(); Hide();
         nint foregroundAfterHide = Native.GetForegroundWindow();
         await Task.Delay(25);
         if (closing || generation != captureGeneration) return;
         _ = DwmFlush();
-        bool restorePanelFocus = Native.GetForegroundWindow() == foregroundAfterHide;
         try
         {
             capturedWindows = PreviewWindows.Capture();
@@ -163,6 +163,7 @@ public partial class GridPanel
             placementPending = false; GridControl.IsEnabled = true;
             if (!closing && generation == captureGeneration)
             {
+                bool restorePanelFocus = ownedFocusBeforeHide && Native.GetForegroundWindow() == foregroundAfterHide;
                 bool activated = ShowActivated; ShowActivated = restorePanelFocus; Show(); ShowActivated = activated;
                 if (restorePanelFocus) { Activate(); GridControl.Focus(); }
             }

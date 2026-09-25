@@ -42,7 +42,7 @@ internal static partial class Program
                 var monitor = MonitorService.ForWindow(hwnd, MonitorService.GetAll());
                 var original = WindowService.VisibleBounds(hwnd);
                 var destination = new PixelRect(original.Left, original.Top, original.Left + Math.Max(320, original.Width - 180), original.Top + Math.Max(240, original.Height - 100));
-                var service = new WindowService();
+                var service = new WindowService(() => PreviewWindows.Capture().Where(e => e.Target.ProcessId == delayed.Id).ToArray());
                 var result = await service.ArrangeAsync(monitor, [(target, destination)], [(target, original)]);
                 Assert(result.Success && WindowService.VisibleBounds(hwnd).Near(destination), "batch waits for one-second async resize instead of rolling a valid placement back: " + result.Message);
                 Assert((await service.UndoAsync()).Success && WindowService.VisibleBounds(hwnd).Near(original), "slow batch retains verified Undo");
@@ -56,7 +56,8 @@ internal static partial class Program
             var entries = PreviewWindows.Capture().Where(e => e.Target.ProcessId == fixture.Id).ToArray();
             Assert(entries.Length == 2, "swap fixture has two exact window identities");
             var monitor = MonitorService.ForWindow(entries[0].Target.Handle, MonitorService.GetAll());
-            var service = new WindowService();
+            // Restrict the test desktop to owned fixtures; never rearrange or suppress real user windows.
+            var service = new WindowService(() => PreviewWindows.Capture().Where(e => e.Target.ProcessId == fixture.Id).ToArray());
             var originals = entries.Select(e => (e.Target, e.Bounds)).ToArray();
             var swapped = new[] { (entries[0].Target, entries[1].Bounds), (entries[1].Target, entries[0].Bounds) };
             var result = await service.ArrangeAsync(monitor, swapped, originals);
@@ -76,6 +77,35 @@ internal static partial class Program
             Assert((await service.ArrangeAsync(monitor, moved, initial)).Success, "native reflow applies previewed group");
             Assert((await service.UndoAsync()).Success && initial.All(p => WindowService.VisibleBounds(p.Target.Handle).Near(p.Item2)), "reflow group Undo restores selected and displaced windows");
 
+            // A previously absent catalog member is a new blocker even if its HWND already exists.
+            Assert(!(await service.ArrangeAsync(monitor, [(entries[0].Target, initial[1].Item2)], [initial[0]])).Success,
+                "new destination blocker rejects before movement");
+            Assert(WindowService.VisibleBounds(entries[0].Target.Handle).Near(initial[0].Item2), "new blocker rejection leaves target unchanged");
+            Native.ShowWindowAsync(entries[1].Target.Handle, 6); await Task.Delay(100);
+            var hiddenCatalog = PreviewWindows.Capture().Where(e => e.Target.ProcessId == fixture.Id).Select(e => (e.Target, e.Bounds)).ToArray();
+            Native.ShowWindowAsync(entries[1].Target.Handle, 9); await Task.Delay(120);
+            Assert(!(await service.ArrangeAsync(monitor, [(entries[0].Target, initial[1].Item2)], hiddenCatalog)).Success,
+                "restored destination blocker rejects from a previously hidden catalog");
+            // Move only our second fixture away, then back into the planned rectangle during settling.
+            var spare = PlacementMath.Calculate(monitor.Work, new(.5, .5, 1, 1), 8, monitor.Dpi);
+            Assert((await service.ArrangeAsync(monitor, [(entries[1].Target, spare)])).Success, "owned blocker starts outside destination");
+            var guarded = PreviewWindows.Capture().Where(e => e.Target.ProcessId == fixture.Id).Select(e => (e.Target, e.Bounds)).ToArray();
+            var destinationRect = PlacementMath.Calculate(monitor.Work, new(.5, 0, 1, .5), 8, monitor.Dpi);
+            async Task MoveBlocker()
+            {
+                await Task.Delay(60);
+                Native.SetWindowPos(entries[1].Target.Handle, 0, destinationRect.Left, destinationRect.Top, destinationRect.Width, destinationRect.Height, 0x4014);
+            }
+            var arrival = MoveBlocker();
+            var guardedResult = await service.ArrangeAsync(monitor, [(entries[0].Target, destinationRect)], guarded);
+            await arrival;
+            Assert(!guardedResult.Success && WindowService.VisibleBounds(entries[0].Target.Handle).Near(initial[0].Item2),
+                "blocker entering during settling triggers verified rollback");
+
+            // A new unrelated window outside the destination is not a reason to reject.
+            Assert((await service.ArrangeAsync(monitor, [(entries[0].Target, initial[0].Item2)], [initial[0]])).Success,
+                "new nonintersecting window does not reject placement");
+
             GridPilot.UI.Theme.Apply("Dark");
             var panel = new GridPilot.UI.GridPanel(entries[0].Target, new AppSettings(), true, (_, _) => null) { DismissOnDeactivate = false };
             panel.Show();
@@ -83,6 +113,23 @@ internal static partial class Program
             panel.Dismiss(false);
             await Task.Delay(100);
             Assert(!panel.IsVisible, "closing persistent panel during deferred preview capture cannot reopen it");
+            var focusPanel = new GridPilot.UI.GridPanel(entries[0].Target, new AppSettings(), true, (_, _) => null);
+            focusPanel.Show(); focusPanel.BeginPlacement();
+            Native.SetForegroundWindow(entries[1].Target.Handle); await Task.Delay(60);
+            focusPanel.CompletePlacement(new(true), true); await Task.Delay(120);
+            Assert(Native.GetForegroundWindow() == entries[1].Target.Handle, "refresh does not steal focus switched away during native placement");
+            // Model a second display's refreshed catalog without moving a window onto user hardware.
+            var synthetic = monitor with { Device = "fixture-display-b", Bounds = new(monitor.Bounds.Right, monitor.Bounds.Top, monitor.Bounds.Right + monitor.Bounds.Width, monitor.Bounds.Bottom), Work = new(monitor.Work.Right, monitor.Work.Top, monitor.Work.Right + monitor.Work.Width, monitor.Work.Bottom) };
+            var currentEntry = entries[0] with { Bounds = new(synthetic.Work.Left + 20, synthetic.Work.Top + 20, synthetic.Work.Left + 800, synthetic.Work.Top + 600) };
+            var fields = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+            typeof(GridPilot.UI.GridPanel).GetField("capturedWindows", fields)!.SetValue(focusPanel, new[] { currentEntry });
+            var snapshots = (Dictionary<string, DesktopSnapshot>)typeof(GridPilot.UI.GridPanel).GetField("snapshots", fields)!.GetValue(focusPanel)!;
+            snapshots[synthetic.Device] = new(synthetic, null);
+            var picker = (System.Windows.Controls.ComboBox)focusPanel.FindName("MonitorPicker");
+            picker.ItemsSource = new[] { monitor, synthetic }; picker.SelectedItem = monitor;
+            focusPanel.SelectSidebarWindow(entries[0]);
+            Assert(((DisplayMonitor)picker.SelectedItem).Device == synthetic.Device, "sidebar routes using refreshed entry before choosing its display");
+            focusPanel.Dismiss(false);
         }
         finally { if (!fixture.HasExited) { fixture.Kill(); await fixture.WaitForExitAsync(); } }
     }
