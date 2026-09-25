@@ -11,6 +11,9 @@ Copy-Item -LiteralPath (Join-Path $projectRoot 'README.md') -Destination $publis
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Install.ps1') -Destination $publishDirectory -Force
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Uninstall.ps1') -Destination $publishDirectory -Force
 Copy-Item -LiteralPath (Join-Path $projectRoot 'docs\VALIDATION.md') -Destination $publishDirectory -Force
+$guideDirectory = Join-Path $publishDirectory 'docs'
+New-Item -ItemType Directory -Path $guideDirectory -Force | Out-Null
+Copy-Item -Path (Join-Path $projectRoot 'docs\*') -Destination $guideDirectory -Recurse -Force
 $archive = Join-Path $releaseRoot "GridPilot-$Runtime.zip"
 Compress-Archive -Path (Join-Path $publishDirectory '*') -DestinationPath $archive -Force
 Get-Item -LiteralPath (Join-Path $publishDirectory 'GridPilot.exe'),$archive | Select-Object FullName,Length
