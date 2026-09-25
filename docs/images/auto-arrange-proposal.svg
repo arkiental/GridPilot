@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="840" viewBox="0 0 1200 840" role="img" aria-labelledby="title desc">
+  <title id="title">Automatic arrangement alternatives for four applications</title>
+  <desc id="desc">Three proportional diagrams of a 3840 by 2080 pixel work area: equal tiles, a large Blender workspace with Chrome, Explorer and Spotify on the right, and a wide Blender workspace with supporting windows below. Proposed geometry only, not native application screenshots.</desc>
+  <rect width="1200" height="840" fill="#17191d"/>
+  <g fill="#f5f2ec" font-family="Segoe UI, sans-serif">
+    <text x="32" y="42" font-size="26">Space according to the job</text>
+    <text x="32" y="70" font-size="15" fill="#b4b6bb">Proposal • 3840 × 2080 work area at 100% • 8 px gaps • native app minimums still need validation</text>
+    <text x="32" y="112" font-size="19">Current baseline: equal tiles</text>
+    <text x="624" y="112" font-size="19">Recommended family: main + support</text>
+  </g>
+  <g transform="translate(32 130) scale(.14)">
+    <rect width="3840" height="2080" fill="#0c0e11"/>
+    <g fill="#343941" stroke="#767c85" stroke-width="3">
+      <rect x="8" y="8" width="1908" height="1028"/><rect x="1924" y="8" width="1908" height="1028"/>
+      <rect x="8" y="1044" width="1908" height="1028"/><rect x="1924" y="1044" width="1908" height="1028"/>
+    </g>
+    <g font-family="Segoe UI, sans-serif" fill="#f5f2ec" font-size="110">
+      <text x="90" y="500">Blender · 25%</text><text x="2006" y="500">Chrome · 25%</text>
+      <text x="90" y="1536">Explorer · 25%</text><text x="2006" y="1536">Spotify · 25%</text>
+    </g>
+  </g>
+  <g transform="translate(624 130) scale(.14)">
+    <rect width="3840" height="2080" fill="#0c0e11"/>
+    <rect x="8" y="8" width="2288" height="2064" fill="#804821" stroke="#ef9849" stroke-width="6"/>
+    <g fill="#343941" stroke="#767c85" stroke-width="3">
+      <rect x="2304" y="8" width="1528" height="1024"/><rect x="2304" y="1040" width="1528" height="620"/><rect x="2304" y="1668" width="1528" height="404"/>
+    </g>
+    <g font-family="Segoe UI, sans-serif" fill="#f5f2ec" font-size="108">
+      <text x="110" y="940">Blender · 60.1%</text><text x="110" y="1100" font-size="85">2288 × 2064</text>
+      <text x="2390" y="470">Chrome · 19.9%</text><text x="2390" y="1360">Explorer · 12.1%</text><text x="2390" y="1900">Spotify · 7.9%</text>
+    </g>
+  </g>
+  <g fill="#b4b6bb" font-family="Segoe UI, sans-serif" font-size="15">
+    <text x="32" y="448">Same space for different needs.</text>
+    <text x="624" y="448">Blender gets ~7.6× Spotify's area; tall main workspace.</text>
+  </g>
+  <text x="32" y="496" fill="#f5f2ec" font-family="Segoe UI, sans-serif" font-size="19">Alternative: wide workspace + bottom support</text>
+  <g transform="translate(32 514) scale(.14)">
+    <rect width="3840" height="2080" fill="#0c0e11"/>
+    <rect x="8" y="8" width="2464" height="1386" fill="#804821" stroke="#ef9849" stroke-width="6"/>
+    <g fill="#343941" stroke="#767c85" stroke-width="3">
+      <rect x="2480" y="8" width="1352" height="1386"/><rect x="8" y="1402" width="2464" height="670"/><rect x="2480" y="1402" width="1352" height="670"/>
+    </g>
+    <g font-family="Segoe UI, sans-serif" fill="#f5f2ec" font-size="108">
+      <text x="110" y="620">Blender · 43.5%</text><text x="110" y="780" font-size="85">2464 × 1386 · 16:9</text>
+      <text x="2570" y="690">Chrome</text><text x="110" y="1800">Explorer</text><text x="2570" y="1800">Spotify</text>
+    </g>
+  </g>
+  <g font-family="Segoe UI, sans-serif" fill="#f5f2ec" font-size="19">
+    <text x="624" y="550">Automatic starting roles</text>
+    <text x="624" y="589" font-size="17">Blender → Workspace</text><text x="624" y="621" font-size="17">Chrome → Reference / normal</text>
+    <text x="624" y="653" font-size="17">Explorer → Utility</text><text x="624" y="685" font-size="17">Spotify → Companion</text>
+    <text x="624" y="733" font-size="15" fill="#b4b6bb">Make main overrides the guess in one action.</text>
+    <text x="624" y="762" font-size="15" fill="#b4b6bb">Minimums override percentages; no silent mode changes.</text>
+    <text x="624" y="791" font-size="15" fill="#b4b6bb">Wide option trades main area for a wider frame.</text>
+  </g>
+</svg>
