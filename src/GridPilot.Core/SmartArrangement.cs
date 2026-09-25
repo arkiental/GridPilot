@@ -37,7 +37,18 @@ public static class SmartArrangement
 
     public static ArrangementPlan Calculate(PixelRect work, IReadOnlyList<ArrangementItem> items, double gap, uint dpi,
         IReadOnlyList<Region>? reserved = null, bool equal = false, string? targetId = null)
+        => CalculateInternal(work, items, gap, dpi, reserved, equal, targetId, out _);
+
+    public static IReadOnlyList<ArrangementPlan> Candidates(PixelRect work, IReadOnlyList<ArrangementItem> items, double gap, uint dpi,
+        IReadOnlyList<Region>? reserved = null, bool equal = false, string? targetId = null)
     {
+        _ = CalculateInternal(work, items, gap, dpi, reserved, equal, targetId, out var result); return result;
+    }
+
+    private static ArrangementPlan CalculateInternal(PixelRect work, IReadOnlyList<ArrangementItem> items, double gap, uint dpi,
+        IReadOnlyList<Region>? reserved, bool equal, string? targetId, out IReadOnlyList<ArrangementPlan> alternatives)
+    {
+        alternatives = [];
         if (items.Count is < 1 or > 32) return new([], "Select between 1 and 32 windows.");
         if (!work.IsValid || dpi == 0 || !double.IsFinite(gap) || gap is < 0 or > 64 ||
             items.Select(i => i.Id).Distinct().Count() != items.Count || items.Any(i => i.MinimumWidth is < 1 or > 32768 || i.MinimumHeight is < 1 or > 32768 ||
@@ -65,11 +76,16 @@ public static class SmartArrangement
             var free = new List<Region> { Region.Full };
             foreach (var obstacle in obstacles.Distinct()) free = free.SelectMany(r => Subtract(r, obstacle)).ToList();
             var movable = items.Where(i => i.Fixed is null).ToArray();
-            if (movable.Length == 0) return new(fixedSlots, null);
+            if (movable.Length == 0) { var fixedPlan = new ArrangementPlan(fixedSlots, null); alternatives = [fixedPlan]; return fixedPlan; }
             string? main = equal ? null : MainId(items, targetId);
             double Support(ArrangementItem i) => (equal ? 1 : i.Role switch { ArrangementRole.Utility => .6, ArrangementRole.Companion => .4, _ => 1 }) * i.Weight;
             double supporting = movable.Where(i => i.Id != main).Sum(Support);
-            var weights = movable.ToDictionary(i => i.Id, i => i.Id == main ? Math.Max(1, supporting * 1.5) * i.Weight : Support(i));
+            // On a very large 100%-scale workspace, companion apps should not grow to
+            // several million pixels solely because the display grew. Give spare area
+            // to the main workspace; this is geometry policy, independent of UI scaling.
+            bool largeWorkspace = !equal && work.Width * 96d / dpi >= 6000 && work.Height * 96d / dpi >= 3000;
+            double mainTarget = largeWorkspace ? .82 : .6;
+            var weights = movable.ToDictionary(i => i.Id, i => i.Id == main ? Math.Max(1, supporting * mainTarget / (1 - mainTarget)) * i.Weight : Support(i));
             movable = movable.OrderByDescending(i => weights[i.Id]).ThenBy(i => i.Id, StringComparer.Ordinal).ToArray();
             double totalArea = free.Sum(r => Area(r)) * work.Width * work.Height, totalWeight = weights.Values.Sum();
             double Cost(ArrangementItem item, PixelRect rect)
@@ -83,10 +99,11 @@ public static class SmartArrangement
                     3 * (Math.Pow(Math.Max(0, preferredWidth / rect.Width - 1), 2) + Math.Pow(Math.Max(0, preferredHeight / rect.Height - 1), 2));
             }
             List<ArrangementSlot>? best = null; double bestCost = double.PositiveInfinity;
+            var ranked = new List<(List<ArrangementSlot> Slots, double Cost)>();
             // A handful of deterministic split policies keeps 32-window planning bounded.
             // Alternate axes and main shares avoid forcing every supporter into one stack.
             foreach (bool horizontalFirst in new[] { true, false })
-            foreach (double mainShare in new[] { .6, .5, .65, .55 })
+            foreach (double mainShare in largeWorkspace ? new[] { .82, .75, .88, .65 } : new[] { .6, .5, .65, .55 })
             {
                 var available = free.OrderByDescending(Area).ThenBy(r => r.Top).ThenBy(r => r.Left).ToList();
                 var candidate = new List<ArrangementSlot>(); int index = 0;
@@ -109,6 +126,7 @@ public static class SmartArrangement
                 }
                 if (index != movable.Length) continue;
                 double cost = candidate.Sum(s => Cost(movable.Single(i => i.Id == s.Id), s.Bounds));
+                ranked.Add((candidate, cost));
                 if (cost < bestCost) { best = candidate; bestCost = cost; }
             }
             // The existing shelf search remains a useful alternate topology, especially
@@ -119,12 +137,32 @@ public static class SmartArrangement
                 if (shelf.Success)
                 {
                     double cost = shelf.Slots.Sum(s => Cost(movable.Single(i => i.Id == s.Id), s.Bounds));
+                    ranked.Add((shelf.Slots.ToList(), cost));
                     if (cost < bestCost) best = shelf.Slots.ToList();
                 }
             }
-            return best is null ? new([], "No suitable layout found. Shrink/remove reserved areas, exclude a window, or adjust minimums. No windows were moved.") : new(fixedSlots.Concat(best).ToArray(), null);
+            if (best is null) return new([], "No suitable layout found. Shrink/remove reserved areas, exclude a window, or adjust minimums. No windows were moved.");
+            if (obstacles.Count == 0)
+                foreach (var candidate in ranked.ToArray())
+                    ranked.Add((candidate.Slots.Select(s => new ArrangementSlot(s.Id, new(work.Left + work.Right - s.Bounds.Right, s.Bounds.Top, work.Left + work.Right - s.Bounds.Left, s.Bounds.Bottom))).ToList(), candidate.Cost + .00001));
+            alternatives = ranked.OrderBy(c => c.Cost).Select(c => new ArrangementPlan(fixedSlots.Concat(c.Slots).ToArray(), null))
+                .DistinctBy(p => string.Join(";", p.Slots.OrderBy(s => s.Id, StringComparer.Ordinal).Select(s => $"{s.Id}:{s.Bounds}"))).Take(16).ToArray();
+            return alternatives[0];
         }
         catch (ArgumentException) { return new([], "An area is too small for the current gap. Enlarge it or reduce the gap."); }
+    }
+
+    // Swap the entire proposed frame. Never resize to make an incompatible swap look valid.
+    public static ArrangementPlan Swap(ArrangementPlan plan, IReadOnlyList<ArrangementItem> items, string first, string second)
+    {
+        if (!plan.Success || first == second) return new([], "Choose two different included windows.");
+        var a = items.FirstOrDefault(i => i.Id == first); var b = items.FirstOrDefault(i => i.Id == second);
+        var x = plan.Slots.FirstOrDefault(s => s.Id == first); var y = plan.Slots.FirstOrDefault(s => s.Id == second);
+        if (a is null || b is null || x is null || y is null) return new([], "Both windows must be in the current proposal.");
+        if (a.Fixed is not null || b.Fixed is not null) return new([], "Clear the saved place before swapping that window.");
+        bool Fits(ArrangementItem i, PixelRect r) => r.Width >= i.MinimumWidth && r.Height >= i.MinimumHeight && (i.AspectRatio == 0 || Math.Abs(r.Height - r.Width / i.AspectRatio) <= 1);
+        if (!Fits(a, y.Bounds) || !Fits(b, x.Bounds)) return new([], "Swap conflicts with a minimum or locked ratio. The proposal is unchanged.");
+        return new(plan.Slots.Select(s => s.Id == first ? s with { Bounds = y.Bounds } : s.Id == second ? s with { Bounds = x.Bounds } : s).ToArray(), null);
     }
 
     private static List<ArrangementSlot>? Partition(Region region, ArrangementItem[] items, bool vertical, double share,
