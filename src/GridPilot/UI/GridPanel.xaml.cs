@@ -22,6 +22,7 @@ public partial class GridPanel : Window
     private readonly Func<int, int, string?> saveGrid;
     private bool closing, ready;
     private readonly nint handle;
+    internal PanelBackdrop Backdrop { get; }
     private DisplayMonitor panelMonitor = null!;
     public WindowTarget Target => target;
     internal bool DismissOnDeactivate { get; set; } = true;
@@ -61,6 +62,7 @@ public partial class GridPanel : Window
         MonitorPicker.ItemsSource = monitors;
         MonitorPicker.SelectedItem = MonitorService.ForWindow(target.Handle, monitors);
         handle = new WindowInteropHelper(this).EnsureHandle();
+        Backdrop = new PanelBackdrop(this, handle, settings.SmokedGlass);
         int cornerPreference = 2; // Win11 rounded corners; normal compositor HWND supports DWM thumbnails.
         Native.DwmSetWindowAttribute(handle, 33, ref cornerPreference, sizeof(int));
         var style = Native.GetWindowLongPtr(handle, -20);
@@ -70,7 +72,7 @@ public partial class GridPanel : Window
         InitializeSidebar();
         PositionNearPointer();
         Deactivated += (_, _) => Dispatcher.BeginInvoke(DismissIfOutside);
-        Closed += (_, _) => { closing = true; GridControl.Desktop = null; snapshots.Clear(); visualTasks.Clear(); preview.Close(); };
+        Closed += (_, _) => { closing = true; Backdrop.Dispose(); GridControl.Desktop = null; snapshots.Clear(); visualTasks.Clear(); preview.Close(); };
         Loaded += (_, _) => { Diagnostics.Write("Focus panel loaded."); Activate(); GridControl.Focus(); GridControl.PulseTarget(); };
         PreviewKeyDown += HandlePanelKey;
         ((UIElement)PresetsPopup.Child).PreviewKeyDown += HandlePanelKey;

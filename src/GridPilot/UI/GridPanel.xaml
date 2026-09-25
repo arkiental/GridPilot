@@ -12,7 +12,7 @@
  </Window.Resources>
  <Grid>
  <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition x:Name="SidebarColumn" Width="300"/></Grid.ColumnDefinitions>
- <Border Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12,0,0,12" Padding="10,12,10,8">
+ <Border Background="Transparent" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="12,0,0,12" Padding="10,12,10,8">
   <Grid>
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <StackPanel Grid.Row="0">
@@ -33,12 +33,12 @@
      <Image x:Name="TargetIcon" DockPanel.Dock="Left" Width="26" Height="26" Margin="0,0,10,0" RenderOptions.BitmapScalingMode="HighQuality"/>
      <TextBlock x:Name="TargetTitle" FontSize="22" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
     </DockPanel>
-    <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="5" Margin="0,0,0,7" Padding="2,0">
+    <Border Background="{DynamicResource PanelControlBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="5" Margin="0,0,0,7" Padding="2,0">
      <DockPanel Height="32">
-      <Button DockPanel.Dock="Right" Content="Auto arrange" Click="AutoArrangeClick" Padding="10,4" BorderThickness="0" ToolTip="Preview and arrange windows on this display"/>
-      <Button x:Name="GridOptionsButton" DockPanel.Dock="Right" Click="GridOptionsClick" BorderThickness="0" Padding="12,4" ToolTip="Grid size" AutomationProperties.Name="Grid size"><StackPanel Orientation="Horizontal"><TextBlock x:Name="GridSize"/><TextBlock Text="⌄" Margin="12,0,0,0"/></StackPanel></Button>
+      <Button Background="Transparent" DockPanel.Dock="Right" Content="Auto arrange" Click="AutoArrangeClick" Padding="10,4" BorderThickness="0" ToolTip="Preview and arrange windows on this display"/>
+      <Button x:Name="GridOptionsButton" Background="Transparent" DockPanel.Dock="Right" Click="GridOptionsClick" BorderThickness="0" Padding="12,4" ToolTip="Grid size" AutomationProperties.Name="Grid size"><StackPanel Orientation="Horizontal"><TextBlock x:Name="GridSize"/><TextBlock Text="⌄" Margin="12,0,0,0"/></StackPanel></Button>
       <TextBlock DockPanel.Dock="Left" Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="18" VerticalAlignment="Center" Margin="8,0"/>
-      <ComboBox x:Name="MonitorPicker" AutomationProperties.Name="Destination display" DisplayMemberPath="ShortLabel" SelectionChanged="MonitorChanged" MinHeight="28" BorderBrush="Transparent" Margin="0,0,10,0"/>
+      <ComboBox x:Name="MonitorPicker" Background="Transparent" AutomationProperties.Name="Destination display" DisplayMemberPath="ShortLabel" SelectionChanged="MonitorChanged" MinHeight="28" BorderBrush="Transparent" Margin="0,0,10,0"/>
      </DockPanel>
     </Border>
    </StackPanel>
@@ -77,7 +77,7 @@
    </Popup>
   </Grid>
  </Border>
- <Border x:Name="Sidebar" Grid.Column="1" Background="{DynamicResource SurfaceBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,1,1" CornerRadius="0,12,12,0" Padding="9,12,9,8">
+ <Border x:Name="Sidebar" Grid.Column="1" Background="Transparent" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,1,1" CornerRadius="0,12,12,0" Padding="9,12,9,8">
   <Grid>
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <DockPanel Height="32" Margin="2,0,0,9">
@@ -87,7 +87,7 @@
     <Border Background="{DynamicResource AccentBrush}" CornerRadius="10" Padding="7,2" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center"><TextBlock x:Name="WindowCount" Foreground="{DynamicResource PrimaryTextBrush}" FontSize="11" FontWeight="SemiBold"/></Border>
    </DockPanel>
    <Grid Grid.Row="1" Margin="0,0,0,8">
-    <TextBox x:Name="WindowSearch" TextChanged="WindowSearchChanged" Padding="29,7,28,7" AutomationProperties.Name="Find a window" ToolTip="Search window titles or app names (Ctrl+F)"/>
+    <TextBox x:Name="WindowSearch" Background="{DynamicResource PanelControlBrush}" TextChanged="WindowSearchChanged" Padding="29,7,28,7" AutomationProperties.Name="Find a window" ToolTip="Search window titles or app names (Ctrl+F)"/>
     <TextBlock Text="&#xE721;" FontFamily="Segoe MDL2 Assets" Foreground="{DynamicResource MutedBrush}" Margin="9,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Center" IsHitTestVisible="False" FontSize="14"/>
     <TextBlock x:Name="SearchPlaceholder" Text="Find a window…" Foreground="{DynamicResource MutedBrush}" Margin="30,0,30,0" VerticalAlignment="Center" IsHitTestVisible="False" FontSize="12"/>
     <Button x:Name="ClearSearchButton" Content="×" Click="ClearSearchClick" HorizontalAlignment="Right" VerticalAlignment="Center" Width="25" Padding="0" BorderThickness="0" Background="Transparent" Visibility="Collapsed" ToolTip="Clear search" AutomationProperties.Name="Clear window search"/>

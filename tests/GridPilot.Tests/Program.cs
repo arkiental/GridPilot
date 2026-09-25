@@ -86,6 +86,7 @@ internal static partial class Program
         WindowPickingTests();
         MinimumGeometryTests();
         ThumbnailGeometryTests();
+        BackdropPolicyTests();
         Throws(() => Region.FromCells(0, 0, 12, 0, 12, 1), "out of bounds cell");
         Throws(() => PlacementMath.Calculate(new(0, 0, 20, 20), Region.Full, 64, 96), "impossible gap");
         Throws(() => PlacementMath.Calculate(work, new(0, 0, double.NaN, 1), 8, 96), "NaN region");
@@ -210,6 +211,20 @@ internal static partial class Program
         }
     }
 
+    private static void BackdropPolicyTests()
+    {
+        Assert(PanelBackdrop.CanUseGlass(true, true, true, false, false, true, true, false), "supported accelerated dark panel permits glass");
+        for (int condition = 0; condition < 8; condition++)
+        {
+            bool[] values = { true, true, true, false, false, true, true, false };
+            values[condition] = !values[condition];
+            Assert(!PanelBackdrop.CanUseGlass(values[0], values[1], values[2], values[3], values[4], values[5], values[6], values[7]),
+                $"backdrop eligibility condition {condition} independently selects opaque fallback");
+        }
+        Assert(JsonSerializer.Deserialize<AppSettings>("{\"Version\":1}")!.SmokedGlass, "older settings gain default glass preference");
+        Assert(!new AppSettings { SmokedGlass = false }.Clone().SmokedGlass, "opaque preference survives settings serialization and isolated editing");
+    }
+
     private static void ThumbnailGeometryTests()
     {
         var full = WindowThumbnail.Fit(1920, 1080, new Rect(10, 20, 192, 108), new Rect(0, 0, 500, 500));
@@ -278,6 +293,20 @@ internal static partial class Program
             int y = Math.Clamp((int)((center.Y - monitor.Bounds.Top) / monitor.Bounds.Height * screenshot.PixelHeight), 0, screenshot.PixelHeight - 1);
             var pixel = new byte[4]; screenshot.CopyPixels(new Int32Rect(x, y, 1, 1), pixel, 4, 0);
             Assert(pixel[1] > 140 && pixel[1] > pixel[0] * 1.5 && pixel[1] > pixel[2] * 1.5, "thumbnail renders the occluded source's green pixels, not the covering window or desktop");
+            bool glass = panel.Backdrop.IsGlass;
+            Console.WriteLine($"Backdrop: {(glass ? "Smoked Glass" : "automatic Matte Focus fallback")}; render tier {RenderCapability.Tier >> 16}.");
+            Assert(!panel.AllowsTransparency && panel.Opacity == 1 && (Native.GetWindowLongPtr(new WindowInteropHelper(panel).Handle, -20) & 0x80000) == 0,
+                "glass keeps a fully opaque nonlayered HWND for DWM thumbnail compatibility");
+            Assert(((SolidColorBrush)frame.Background).Color.A == 255, "thumbnail cards retain an opaque backing");
+            panel.Backdrop.Enabled = false; panel.Backdrop.Refresh();
+            await Task.Delay(120);
+            Assert(!panel.Backdrop.IsGlass && ((SolidColorBrush)panel.Background).Color.A == 255, "switching to Matte Focus restores an opaque WPF background");
+            screenshot = DesktopSnapshot.Capture(monitor).Image!;
+            screenshot.CopyPixels(new Int32Rect(x, y, 1, 1), pixel, 4, 0);
+            Assert(pixel[1] > 140 && pixel[1] > pixel[0] * 1.5 && pixel[1] > pixel[2] * 1.5 && panel.ThumbnailCount > 0,
+                "native thumbnail pixels survive a live glass-to-matte transition");
+            panel.Backdrop.Enabled = true; panel.Backdrop.Refresh();
+            Assert(panel.Backdrop.IsGlass == glass, "restoring glass preference reevaluates the current system policy");
             if (Environment.GetCommandLineArgs().Contains("--inspect-sidebar")) await Task.Delay(45000);
             panel.SetSidebarOpen(false);
             Assert(panel.ThumbnailCount == 0, "collapsing releases all thumbnail registrations");
