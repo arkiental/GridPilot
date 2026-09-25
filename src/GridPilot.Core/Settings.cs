@@ -30,6 +30,7 @@ public sealed class AppSettings
     public Shortcut? Undo { get; set; }
     public bool StartAtLogin { get; set; }
     public string Theme { get; set; } = "Dark";
+    public bool SmokedGlass { get; set; } = true;
     public bool WindowSidebarOpen { get; set; } = true;
     public List<PlacementPreset> Presets { get; set; } = Defaults();
 

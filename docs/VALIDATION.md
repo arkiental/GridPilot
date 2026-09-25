@@ -29,6 +29,14 @@ The native suite enumerates and tests every connected monitor. Earlier tests use
 
 ## Desktop interface checks
 
+### Smoked Glass implementation (issue #21)
+
+On 2026-09-25, the Release solution built with `-warnaserror` (zero warnings/errors), core tests passed **2,537 assertions**, and the full owned-fixture native suite passed **2,752 assertions** on one 7680 × 4320 display at 200%. The panel reported **Smoked Glass**, with WPF rendering tier 2, so this run exercised the actual native Desktop Acrylic path rather than only the automatic opaque fallback. No mouse or keyboard input was injected.
+
+The new checks cover each eligibility condition independently, older settings acquiring the default preference, and persistence of the opaque preference. Native checks confirm the HWND remains nonlayered with full window opacity, thumbnail cards have opaque backing, the covered source's green pixels still render through DWM, and switching to Matte Focus restores the opaque WPF surface without losing native thumbnail pixels or registrations. Reenabling glass restores the current system-policy result. Existing placement, target identity, search, collapse/filter cleanup, Undo and maximized-window tests also passed.
+
+The implementation adds no rendering timer, WPF blur or repeat desktop capture; Windows owns the backdrop material. This is not a performance certification: comparative open/drag/scroll frame-time measurements, visual inspection against busy backgrounds, live Windows transparency/high-contrast/battery-saver changes, Remote Desktop transitions and mixed-monitor hardware checks remain outstanding. Policy unit checks are not evidence that those system transitions were exercised on hardware.
+
 The Windows Computer Use interface was used to inspect the real app, save settings, activate the grid with its registered shortcut, inspect captured target/monitor labels, extend a selection with the keyboard, apply it with Enter, cancel with Escape, and apply a reverse-direction mouse drag to a disposable window. A preset shortcut was recorded through the editor, verified in the saved settings, invoked against the test window, and undone through the grid panel. Temporary test preferences were restored afterward. Dark-theme text/control contrast was corrected after visual inspection.
 
 The compact panel is a tool window in normal operation. The `--ui-test` switch exposes it as a regular taskbar window so desktop automation can discover and inspect it; the selection and placement paths are shared with normal operation.
@@ -54,3 +62,5 @@ The sidebar critic review checked native thumbnail lifecycle, clipping, destinat
 Before broad distribution, repeat the desktop checks with two or more physical monitors at different scaling settings, portrait orientation, monitors left/above the primary display, live display disconnect/reconnect, Remote Desktop transitions, administrator-run applications, and a representative set of third-party custom-framed windows.
 
 Application minimum sizes are accommodated only after repeated stable resize responses and verified final geometry. Other unsupported constraints are reported failures, with bounded corrections and verified rollback. The proposed 100 ms warm-activation target is not a certified performance guarantee; one observed warm activation during UI checking was approximately 73 ms, while first activation was approximately 225 ms on the development machine.
+
+Independent critic review found no blocking defects. Immediate app-owned battery-saver transitions while the panel remains open are not guaranteed: there is no dedicated power-setting subscription. DWM controls system material adaptation, and panel opening/refresh reevaluates eligibility.

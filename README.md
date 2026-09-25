@@ -2,6 +2,8 @@
 
 A native Windows 11 window-placement utility, inspired by Divvy's grid interaction with an independent interface. Built with C#, WPF, and Win32 on .NET 10.
 
+The Focus panel uses **Smoked Glass** in dark mode on compatible Windows 11 22H2+ desktops: a restrained charcoal shell around opaque desktop and window previews. Turn off **Settings → Smoked Glass panel** for **Matte Focus**, the opaque alternative. At panel opening or refresh, Matte Focus is also automatic when Windows transparency is off, high contrast or battery saver is active, the session is remote, hardware acceleration is insufficient, or the backdrop API is unavailable. Light mode remains opaque. The layout, orange placement controls and red selected-window marker are unchanged.
+
 [Report a bug or request a feature](https://github.com/arkiental/GridPilot/issues/new/choose) · [Feature tracker](https://github.com/arkiental/GridPilot/issues?q=is%3Aissue) · [GitHub and agent workflow](docs/GITHUB_WORKFLOW.md) · [Downloads](https://github.com/arkiental/GridPilot/releases)
 
 ## Run
