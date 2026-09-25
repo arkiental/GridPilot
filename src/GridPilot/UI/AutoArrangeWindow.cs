@@ -58,7 +58,8 @@ internal sealed partial class AutoArrangeWindow : Window
     private IReadOnlyList<ArrangementPlan> candidates = [];
     private IReadOnlyList<ArrangementItem> planItems = [];
     private int candidateIndex;
-    private bool initialized, closing, applying, updatingThumbnails, targetsUnavailable;
+    private bool initialized, closing, applying, detectingMinimums, updatingThumbnails, targetsUnavailable;
+    internal Task MinimumDetection { get; private set; } = Task.CompletedTask;
     private Row? selected;
     private Row? main;
     private readonly ComboBox layout = new() { ItemsSource = new[] { "Smart", "Equal tiles" }, SelectedIndex = 0, Width = 110, Margin = new(5) };
@@ -152,10 +153,32 @@ internal sealed partial class AutoArrangeWindow : Window
         search.TextChanged += (_, _) => FilterCards(); sidebar.ScrollChanged += (_, _) => UpdateThumbnails();
         SourceInitialized += (_, _) => { handle = new WindowInteropHelper(this).Handle; backdrop = new PanelBackdrop(this, handle, settings.SmokedGlass); int corners = 2; Native.DwmSetWindowAttribute(handle, 33, ref corners, sizeof(int)); };
         thumbnailTimer.Tick += (_, _) => UpdateThumbnails(); LayoutUpdated += (_, _) => UpdateThumbnails();
-        Loaded += (_, _) => { thumbnailTimer.Start(); UpdateThumbnails(); foreach (var row in rows) _ = LoadVisualAsync(row); };
+        Loaded += (_, _) => { thumbnailTimer.Start(); UpdateThumbnails(); foreach (var row in rows) _ = LoadVisualAsync(row); MinimumDetection = DetectMinimumsAsync(); };
         Closed += (_, _) => { closing = true; thumbnailTimer.Stop(); visualCancellation.Cancel(); DisposePlanViews(); foreach (var row in rows) row.Thumbnail?.Dispose(); backdrop?.Dispose(); };
         initialized = true; ShowInspector(); Recalculate(); RefreshUndo();
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { Close(); e.Handled = true; } };
+    }
+
+    private async Task DetectMinimumsAsync()
+    {
+        detectingMinimums = true; applyButton.IsEnabled = reroll.IsEnabled = false; RefreshUndo();
+        status.Text = "Checking application minimum sizes…";
+        try
+        {
+            await Task.WhenAll(rows.Select(async row =>
+            {
+                var minimum = await WindowMinimums.ReadAsync(row.Entry.Target, monitor, visualCancellation.Token);
+                if (closing || minimum is null || !WindowService.IsSameWindow(row.Entry.Target)) return;
+                row.ObservedMinimumWidth = Math.Max(row.ObservedMinimumWidth, minimum.MinimumWidth);
+                row.ObservedMinimumHeight = Math.Max(row.ObservedMinimumHeight, minimum.MinimumHeight);
+            }));
+        }
+        catch (OperationCanceledException) when (visualCancellation.IsCancellationRequested) { }
+        finally
+        {
+            detectingMinimums = false;
+            if (!closing) { Recalculate(); ValidateLiveTargets(); RefreshUndo(); }
+        }
     }
 
     private static bool Pair(string value, out int width, out int height)
@@ -294,6 +317,8 @@ internal sealed partial class AutoArrangeWindow : Window
                 items.Add(new(Id(row), ratio, Math.Max(rule.MinimumWidth, row.ObservedMinimumWidth),
                     Math.Max(rule.MinimumHeight, row.ObservedMinimumHeight), role, row.Weight, row == main, row.Place?.Region));
                 row.Summary.Text = $"{role} · {row.Weight:0.##}× space" + (row.Place is not null ? " · Saved place" : "");
+                if (row.ObservedMinimumWidth > 0 || row.ObservedMinimumHeight > 0)
+                    row.Summary.Text += $" · Detected minimum {Math.Max(rule.MinimumWidth, row.ObservedMinimumWidth)} × {Math.Max(rule.MinimumHeight, row.ObservedMinimumHeight)} px";
             }
             if (rows.Any(r => r.Include.IsChecked == true && r.AppId is not null && unresolved.Contains(r.AppId)))
                 throw new ArgumentException("Several windows match a saved app place. Select the intended window and choose Use saved place, or clear the place.");
@@ -301,7 +326,7 @@ internal sealed partial class AutoArrangeWindow : Window
             string? targetId = openingTarget is null ? null : (rows.FindIndex(r => r.Entry.Target.Handle == openingTarget.Handle && r.Entry.Target.ProcessId == openingTarget.ProcessId) + 1).ToString(CultureInfo.InvariantCulture);
             planItems = items; candidates = SmartArrangement.Candidates(monitor.Work, items, settings.Gap, monitor.Dpi, reservations, layout.SelectedIndex == 1, targetId); candidateIndex = 0;
             plan = candidates.FirstOrDefault() ?? SmartArrangement.Calculate(monitor.Work, items, settings.Gap, monitor.Dpi, reservations, layout.SelectedIndex == 1, targetId);
-            applyButton.IsEnabled = plan.Success; reroll.IsEnabled = candidates.Count > 1;
+            applyButton.IsEnabled = !detectingMinimums && plan.Success; reroll.IsEnabled = !detectingMinimums && candidates.Count > 1;
             RenderPlan();
             if (!plan.Success) { status.Text = plan.Error; return; }
             double coverage = plan.Slots.Sum(s => (double)s.Bounds.Width * s.Bounds.Height) / ((double)monitor.Work.Width * monitor.Work.Height);
@@ -313,7 +338,7 @@ internal sealed partial class AutoArrangeWindow : Window
     private static string ShortTitle(string title) => title.Length <= 32 ? title : title[..29] + "…";
     private async void Apply()
     {
-        if (applying || !plan.Success || !ValidateLiveTargets()) return;
+        if (applying || detectingMinimums || !plan.Success || !ValidateLiveTargets()) return;
         if (remember.IsChecked == true && !SaveDraft()) return;
         var placements = plan.Slots.Select(s => (rows[int.Parse(s.Id, CultureInfo.InvariantCulture) - 1].Entry.Target, s.Bounds)).ToArray();
         applying = true; ((UIElement)Content).IsEnabled = false;
@@ -392,7 +417,7 @@ internal sealed partial class AutoArrangeWindow : Window
     }
     private async void Undo()
     {
-        if (applying || undoAsync is null || !undoButton.IsEnabled) return;
+        if (applying || detectingMinimums || undoAsync is null || !undoButton.IsEnabled) return;
         applying = true; ((UIElement)Content).IsEnabled = false;
         try
         {
@@ -407,6 +432,6 @@ internal sealed partial class AutoArrangeWindow : Window
     }
     private void RefreshUndo()
     {
-        if (canUndo is not null) undoButton.IsEnabled = !applying && undoAsync is not null && canUndo();
+        if (canUndo is not null) undoButton.IsEnabled = !applying && !detectingMinimums && undoAsync is not null && canUndo();
     }
 }
