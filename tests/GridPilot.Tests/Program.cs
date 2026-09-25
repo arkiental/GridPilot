@@ -423,6 +423,7 @@ internal static partial class Program
 
         await MinimumPlacementTests();
         await ArrangementNativeTests();
+        await PlacementInteractionNativeTests();
         await NativePickingTests();
         await SidebarNativeTests();
         Console.WriteLine("Native: real window movement, visible borders, undo, maximized state, constraints, display fallback and hotkeys passed.");

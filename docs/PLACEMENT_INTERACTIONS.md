@@ -1,10 +1,15 @@
-# Placement interactions implementation contract
+# Placement interactions
 
-Follow-up to #22 and PR #25, authorized by the owner in the Codex task.
+Open Focus and select a window by sidebar or Ctrl-click. Drag a grid rectangle to preview the selected window and any displaced windows in orange. Release applies the entire preview as one transaction; Undo restores the group. Left/Right/Fill and current-display saved presets use the same reflow path.
 
-- Verify native batch placement, diagnose unwanted rollback and preserve recoverable Undo.
-- Preview overlap reflow before normal grid placement; reject impossible minimum sizes.
-- Alt-drag exchanges two windows' exact bounds, with one grouped Undo.
-- Validate physical pixels, destination DPI, stale identities and maximized restoration.
+Only windows directly overlapped by the requested destination may move. Other visible windows, including unavailable or fixed-size windows, remain obstacles. If the selection covers an unavailable window, or the bounded search finds no remaining grid rectangles meeting configured minimums, nothing moves. Choose fewer cells, a finer grid, or move an obstruction first. Native application minimums may be larger or change dynamically; rejected native placements roll back with the requested and observed frame reported.
 
-This document describes pending work. Implementation, tests and independent Astra High review are required before readiness.
+Hold Alt and drag a preview window onto another to exchange their exact positions and sizes, including unequal rectangles. When multiple source windows overlap, select the intended source with Ctrl-click first. When several destination windows overlap, turn the wheel during the drag to choose one explicitly; the destination name and complete swap preview are shown before release. A swap may preserve existing overlap between its two source rectangles; it never silently turns an arbitrary overlapping arrangement into a valid plan.
+
+Placement retains exact HWND and PID identities and physical-pixel geometry. Before and during a guarded transaction, GridPilot rechecks destination occupancy. A newly opened/restored window or a window moving into the destination cancels the operation and restores touched windows. New windows outside the destination do not cancel it. An exact swap can retain unchanged overlaps already present in the captured preview. Legacy Auto arrange keeps its separate documented behavior for excluded windows.
+
+Focus can remain open after placement. Escape closes it, and the title bar moves it. Its desktop image refreshes once after each operation by briefly hiding only GridPilot's panel and waiting for the compositor before capture. This is a refreshed screenshot, not continuous live main-canvas video; the sidebar retains its live DWM previews. Closing during refresh cannot reopen the panel, and refresh does not reactivate it after the user switches applications. **Fill empty slot** uses the separate partial-placement workflow when wired by the application.
+
+Batch placement sends bounded requests and waits for stable native responses, including a delayed restore from maximized state. This resolves the reproduced one-second fixture response that exceeded the older batch retry budget; it does not establish the cause of every production app rollback. A refusing or stale window still fails safely, with grouped Undo retaining any restoration that could not be verified.
+
+Validation includes core geometry tests and owned native fixtures for delayed acceptance, unequal overlapping swaps, grouped Undo, stale identities/geometry, newly appearing/restored/moving blockers, irrelevant occupancy, focus preservation and cancellation during refresh. Fixtures use an injected catalog restricted to their own disposable windows; production always enumerates the real desktop. The default native suite includes these tests; `--interactions` runs them separately. Actual 8K100% ergonomics, changing app-native minimums and mixed-monitor hardware remain manual checks.

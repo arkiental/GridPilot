@@ -8,6 +8,9 @@ public sealed record PlacementResult(bool Success, string? Message = null);
 
 public sealed class WindowService
 {
+    private readonly Func<IReadOnlyList<PreviewWindowEntry>> captureCatalog;
+    public WindowService() : this(PreviewWindows.Capture) { }
+    internal WindowService(Func<IReadOnlyList<PreviewWindowEntry>> captureCatalog) => this.captureCatalog = captureCatalog;
     private sealed record Snapshot(WindowTarget Target, Native.WindowPlacement Placement, PixelRect Outer, DisplayMonitor Monitor);
     private Snapshot? undo;
     private List<Snapshot>? batchUndo;
@@ -267,24 +270,34 @@ public sealed class WindowService
             {
                 foreach (var original in expectedOriginals ?? [])
                 {
+                    if (!placements.Any(p => p.Target.Handle == original.Target.Handle && p.Target.ProcessId == original.Target.ProcessId)) continue;
                     if (untouchedOnly && changed.Any(s => s.Target.Handle == original.Target.Handle && s.Target.ProcessId == original.Target.ProcessId)) continue;
                     if (!IsSameWindow(original.Target) || !VisibleBounds(original.Target.Handle).Near(original.Bounds))
                         throw new InvalidOperationException("A previewed window moved or closed. Refresh the grid before applying this plan.");
                 }
             }
             CheckOriginals(false);
+            bool exactSwap = placements.Count == 2 && expectedOriginals is not null &&
+                expectedOriginals.Any(o => o.Target.Handle == placements[0].Target.Handle && o.Target.ProcessId == placements[0].Target.ProcessId && o.Bounds == placements[1].Bounds) &&
+                expectedOriginals.Any(o => o.Target.Handle == placements[1].Target.Handle && o.Target.ProcessId == placements[1].Target.ProcessId && o.Bounds == placements[0].Bounds);
+            void CheckOccupancy()
+            {
+                if (expectedOriginals is null) return; // Legacy Auto arrange intentionally permits excluded windows underneath.
+                foreach (var entry in captureCatalog())
+                {
+                    if (placements.Any(p => p.Target.Handle == entry.Target.Handle && p.Target.ProcessId == entry.Target.ProcessId) ||
+                        !placements.Any(p => PlacementInteractions.Overlaps(p.Bounds, entry.Bounds))) continue;
+                    bool unchangedKnownOverlap = exactSwap && expectedOriginals.Any(o => o.Target.Handle == entry.Target.Handle &&
+                        o.Target.ProcessId == entry.Target.ProcessId && o.Bounds.Near(entry.Bounds));
+                    if (!unchangedKnownOverlap)
+                        throw new InvalidOperationException("Another window now occupies the previewed destination. Refresh the grid before applying this plan.");
+                }
+            }
+            CheckOccupancy();
             for (int a = 0; a < placements.Count; a++)
             for (int b = a + 1; b < placements.Count; b++)
-                if (PlacementInteractions.Overlaps(placements[a].Bounds, placements[b].Bounds))
-                {
-                    // An explicit two-window swap preserves their existing overlapping geometry.
-                    // No other overlapping batch is accepted.
-                    var first = expectedOriginals?.FirstOrDefault(o => o.Target.Handle == placements[a].Target.Handle && o.Target.ProcessId == placements[a].Target.ProcessId);
-                    var second = expectedOriginals?.FirstOrDefault(o => o.Target.Handle == placements[b].Target.Handle && o.Target.ProcessId == placements[b].Target.ProcessId);
-                    if (placements.Count != 2 || first is null || second is null || first.Value.Target is null || second.Value.Target is null ||
-                        placements[a].Bounds != second.Value.Bounds || placements[b].Bounds != first.Value.Bounds)
-                        throw new InvalidOperationException("The placement plan contains overlapping windows.");
-                }
+                if (PlacementInteractions.Overlaps(placements[a].Bounds, placements[b].Bounds) && !exactSwap)
+                    throw new InvalidOperationException("The placement plan contains overlapping windows.");
             foreach (var p in placements)
             {
                 if (!p.Bounds.IsValid || p.Bounds.Left < expected.Work.Left || p.Bounds.Top < expected.Work.Top || p.Bounds.Right > expected.Work.Right || p.Bounds.Bottom > expected.Work.Bottom)
@@ -298,7 +311,7 @@ public sealed class WindowService
                 CheckDisplay();
                 var p = placements[i];
                 if (!IsSameWindow(p.Target) || Capture(p.Target.Handle, out _) is null) throw new InvalidOperationException("A selected window became unavailable.");
-                CheckOriginals(true);
+                CheckOriginals(true); CheckOccupancy();
                 changed.Add(snapshots[i]);
                 if (Native.IsZoomed(p.Target.Handle))
                 {
@@ -306,16 +319,16 @@ public sealed class WindowService
                     for (int retry = 0; retry < 80 && IsSameWindow(p.Target) && Native.IsZoomed(p.Target.Handle); retry++) await Task.Delay(25);
                     if (!IsSameWindow(p.Target) || Native.IsZoomed(p.Target.Handle)) throw new InvalidOperationException($"{p.Target.Title} did not finish restoring from maximized mode.");
                 }
-                bool accepted = await SettleExactAsync(p.Target, p.Bounds);
+                bool accepted = await SettleExactAsync(p.Target, p.Bounds, CheckOccupancy);
                 if (!accepted)
                 {
                     string observed = IsSameWindow(p.Target) ? VisibleBounds(p.Target.Handle).ToString() : "closed";
                     Diagnostics.Write($"Batch refusal HWND={p.Target.Handle} PID={p.Target.ProcessId} requested={p.Bounds} observed={observed}");
-                    throw new InvalidOperationException($"{p.Target.Title} did not accept {p.Bounds.Width} × {p.Bounds.Height} px at ({p.Bounds.Left}, {p.Bounds.Top}). Observed frame: {observed}. Enlarge its place or exclude it; no smaller size will be forced.");
+                    throw new InvalidOperationException($"{p.Target.Title} did not accept {p.Bounds.Width} Ã— {p.Bounds.Height} px at ({p.Bounds.Left}, {p.Bounds.Top}). Observed frame: {observed}. Enlarge its place or exclude it; no smaller size will be forced.");
                 }
             }
             CheckDisplay();
-            CheckOriginals(true);
+            CheckOriginals(true); CheckOccupancy();
             if (placements.Any(p => !IsSameWindow(p.Target) || !VisibleBounds(p.Target.Handle).Near(p.Bounds)))
                 throw new InvalidOperationException("A window changed size while arranging.");
             batchUndo = snapshots; undo = null;
@@ -332,7 +345,7 @@ public sealed class WindowService
 
     // Send once, then observe convergence. Repeated async requests can outlive the old
     // 600ms retry loop and arrive after rollback. One bounded correction handles DWM/DPI borders.
-    private static async Task<bool> SettleExactAsync(WindowTarget target, PixelRect bounds)
+    private static async Task<bool> SettleExactAsync(WindowTarget target, PixelRect bounds, Action checkOccupancy)
     {
         for (int correction = 0; correction < 2; correction++)
         {
@@ -342,6 +355,7 @@ public sealed class WindowService
             {
                 await Task.Delay(25);
                 if (!IsSameWindow(target)) return false;
+                if (poll % 4 == 0) checkOccupancy();
                 if (VisibleBounds(target.Handle).Near(bounds)) { if (++stable >= 8) return true; }
                 else stable = 0;
             }
