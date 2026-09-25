@@ -67,7 +67,6 @@ public partial class App : Application
             {
                 // Freeze the selected target when a preset is invoked from an already-open grid.
                 var target = panel is not null ? panel.Target : WindowService.CaptureForeground(out _);
-                panel?.Dismiss(false);
                 if (target is null) Notify("Activate a resizable application window first."); else _ = ApplyPresetAsync(target, preset);
             }));
         return actions;
@@ -96,6 +95,7 @@ public partial class App : Application
         panel = next;
         next.Closed += (_, _) => { if (panel == next) panel = null; };
         next.PlacementRequested += (selected, region, device) => _ = PlaceAsync(selected, device, region);
+        next.BatchPlacementRequested += (display, placements, originals) => _ = ApplyPanelBatchAsync(next, display, placements, originals, next.PendingPlacementRegion);
         next.PresetRequested += (selected, preset, device) => _ = preset.Monitor == "current"
             ? PlaceAsync(selected, device, preset.Region) : ApplyPresetAsync(selected, preset);
         next.TargetChanged += selected => lastTarget = selected;
@@ -127,13 +127,26 @@ public partial class App : Application
     }
     private async Task ApplyPresetAsync(WindowTarget target, PlacementPreset preset)
     {
+        if (windows.Busy) return;
         var monitors = MonitorService.GetAll();
         if (monitors.Count == 0) { Notify("No display is available."); return; }
         var monitor = MonitorService.Resolve(preset.Monitor, target.Handle, monitors);
+        if (panel is { } owner && owner.Target == target) { owner.RequestPlacement(monitor.Device, preset.Region); return; }
         await PlaceAsync(target, monitor.Device, preset.Region);
+    }
+    private async Task ApplyPanelBatchAsync(GridPanel owner, DisplayMonitor display,
+        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements,
+        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> originals, Region? originatingRegion)
+    {
+        var result = await windows.ArrangeAsync(display, placements, originals);
+        if (result.Success && originatingRegion is { } region) lastRegion = region;
+        if (ReferenceEquals(panel, owner)) owner.CompletePlacement(result, windows.CanUndo);
+        UpdateTray();
     }
     private async Task PlaceAsync(WindowTarget target, string device, Region region)
     {
+        if (windows.Busy) return;
+        var owner = panel; owner?.BeginPlacement();
         var result = await windows.PlaceAsync(target, device, region, settings.Gap);
         if (result.Success)
         {
@@ -141,13 +154,16 @@ public partial class App : Application
             if (result.Message is { } adjustment) Notify(adjustment);
         }
         else Notify(result.Message ?? "The placement could not be applied.");
+        if (owner is not null && ReferenceEquals(panel, owner)) owner.CompletePlacement(result, windows.CanUndo);
         UpdateTray();
     }
     private async Task UndoAsync()
     {
-        panel?.Dismiss(false);
+        if (windows.Busy) return;
+        var owner = panel; owner?.BeginPlacement();
         var result = await windows.UndoAsync();
         if (!result.Success) Notify(result.Message ?? "Undo failed.");
+        if (owner is not null && ReferenceEquals(panel, owner)) owner.CompletePlacement(result, windows.CanUndo);
         UpdateTray();
     }
 

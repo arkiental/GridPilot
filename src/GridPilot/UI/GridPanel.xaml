@@ -53,7 +53,7 @@
    <Border Grid.Row="3" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,7,2,0">
     <DockPanel Height="29">
      <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE713;" ToolTip="Settings" AutomationProperties.Name="Open settings" Click="SettingsClick"/>
-     <Button DockPanel.Dock="Right" Content="Fill empty slot" FontSize="11" Padding="7,3" Margin="0,0,8,0" Click="EmptySlotClick" ToolTip="Place the selected window in available space without moving other windows"/>
+     <Button x:Name="EmptySlotButton" DockPanel.Dock="Right" Content="Fill empty slot" FontSize="11" Padding="7,3" Margin="0,0,8,0" Click="EmptySlotClick" ToolTip="Place the selected window in available space without moving other windows"/>
      <Button x:Name="FooterUndoButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE7A7;" ToolTip="Undo placement (Ctrl+Z)" AutomationProperties.Name="Undo last placement" Click="UndoClick" Margin="0,0,8,0"/>
      <TextBlock x:Name="SelectionLabel" Text="Drag to place · Ctrl-click to select · Esc cancels" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis"/>
     </DockPanel>
