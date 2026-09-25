@@ -113,6 +113,25 @@ internal static partial class Program
         retryUndo.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30); Assert(retryUndo.IsEnabled, "failed Undo retains retry access while snapshots remain");
         retryUndo.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30); Assert(!retryUndo.IsEnabled, "successful Undo reflects consumed service snapshots"); rollback.Close();
 
+        var learned = new AutoArrangeWindow(monitor, new(), _ => null, (_, _) => { }, entries,
+            applyAsync: (_, _) => Task.FromResult(new PlacementResult(false, "Size refused; restored.", new(entries[0].Target, 1600, 1200))));
+        try
+        {
+            Field<CheckBox>(learned, "remember").IsChecked = false;
+            Field<Button>(learned, "applyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30);
+            var learnedItems = Field<IReadOnlyList<ArrangementItem>>(learned, "planItems");
+            Assert(learnedItems[0].MinimumWidth == 1600 && learnedItems[0].MinimumHeight == 1200, "async failure updates preview constraints after placement busy flag clears");
+            Assert(learnedItems[1].MinimumWidth == 320 && learnedItems[1].MinimumHeight == 240, "learned constraint is per HWND/PID, not shared across same-app documents");
+            var learnedPlan = Field<ArrangementPlan>(learned, "plan");
+            Assert(learnedPlan.Success && learnedPlan.Slots.Single(s => s.Id == "1").Bounds.Width >= 1600 && learnedPlan.Slots.Single(s => s.Id == "1").Bounds.Height >= 1200, "revised preview obeys observed app dimensions");
+            Assert(Field<TextBlock>(learned, "status").Text.Contains("Review it"), "revised preview requests review rather than silently applying a changed plan");
+            learned.LearnConstraint(new(entries[0].Target with { ProcessId = 0 }, 32000, 32000));
+            Assert(Field<ArrangementPlan>(learned, "plan").Success, "stale PID cannot poison another window's preview");
+            learned.LearnConstraint(new(entries[0].Target, 32768, 32768));
+            Assert(!Field<ArrangementPlan>(learned, "plan").Success && !Field<Button>(learned, "applyButton").IsEnabled, "infeasible observed size disables repeat application of the rejected layout");
+        }
+        finally { learned.Close(); }
+
         using var manyFixture = StartFixture("--sixteen");
         AutoArrangeWindow? catalog = null;
         try

@@ -18,6 +18,8 @@ internal sealed partial class AutoArrangeWindow : Window
     private sealed record Row(PreviewWindowEntry Entry, string? AppId, CheckBox Include, TextBox Ratio, TextBox GridShape, TextBox Minimum, ComboBox Role, TextBlock Summary)
     {
         public double Weight { get; set; } = 1;
+        public int ObservedMinimumWidth { get; set; }
+        public int ObservedMinimumHeight { get; set; }
         public ArrangementPlace? Place { get; set; }
         public List<Button> AutomaticControls { get; } = [];
         public Button? UseSaved { get; set; }
@@ -289,7 +291,8 @@ internal sealed partial class AutoArrangeWindow : Window
                 var rule = ReadRule(row);
                 double ratio = rule.GridWidth == 0 ? rule.AspectRatio : (double)monitor.Work.Width * rule.GridWidth / settings.Columns / ((double)monitor.Work.Height * rule.GridHeight / settings.Rows);
                 var role = rule.Role == ArrangementRole.Automatic ? SmartArrangement.Recognize(row.AppId) : rule.Role;
-                items.Add(new(Id(row), ratio, rule.MinimumWidth, rule.MinimumHeight, role, row.Weight, row == main, row.Place?.Region));
+                items.Add(new(Id(row), ratio, Math.Max(rule.MinimumWidth, row.ObservedMinimumWidth),
+                    Math.Max(rule.MinimumHeight, row.ObservedMinimumHeight), role, row.Weight, row == main, row.Place?.Region));
                 row.Summary.Text = $"{role} · {row.Weight:0.##}× space" + (row.Place is not null ? " · Saved place" : "");
             }
             if (rows.Any(r => r.Include.IsChecked == true && r.AppId is not null && unresolved.Contains(r.AppId)))
@@ -315,12 +318,14 @@ internal sealed partial class AutoArrangeWindow : Window
         var placements = plan.Slots.Select(s => (rows[int.Parse(s.Id, CultureInfo.InvariantCulture) - 1].Entry.Target, s.Bounds)).ToArray();
         applying = true; ((UIElement)Content).IsEnabled = false;
         status.Text = "Applying and verifying the proposed frames…";
+        PlacementConstraint? constraint = null;
         try
         {
             PlacementResult result;
             if (applyAsync is not null) result = await applyAsync(monitor, placements);
             else { apply(monitor, placements); result = new(true); }
             if (closing) return;
+            constraint = result.Constraint;
             if (result.Success) undoButton.IsEnabled = undoAsync is not null;
             status.Text = result.Message ?? (result.Success ? "Layout applied. Undo restores the group. Reroll to try another proposal." : "The layout could not be applied.");
             if (result.Success && closeAfter.IsChecked == true) Close();
@@ -330,8 +335,28 @@ internal sealed partial class AutoArrangeWindow : Window
         finally
         {
             applying = false;
-            if (!closing) { ((UIElement)Content).IsEnabled = true; ValidateLiveTargets(); RefreshUndo(); }
+            if (!closing)
+            {
+                ((UIElement)Content).IsEnabled = true;
+                if (constraint is not null) LearnConstraint(constraint);
+                ValidateLiveTargets(); RefreshUndo();
+            }
         }
+    }
+
+    internal void LearnConstraint(PlacementConstraint constraint)
+    {
+        var row = rows.FirstOrDefault(r => r.Entry.Target.Handle == constraint.Target.Handle && r.Entry.Target.ProcessId == constraint.Target.ProcessId);
+        if (row is null || !WindowService.IsSameWindow(row.Entry.Target) ||
+            constraint.MinimumWidth is < 0 or > 32768 || constraint.MinimumHeight is < 0 or > 32768) return;
+        // Session-only physical-pixel bounds: another window of the same app, or a
+        // later DPI/session, may have different constraints. Saved rules stay explicit.
+        row.ObservedMinimumWidth = Math.Max(row.ObservedMinimumWidth, constraint.MinimumWidth);
+        row.ObservedMinimumHeight = Math.Max(row.ObservedMinimumHeight, constraint.MinimumHeight);
+        Recalculate();
+        selected = row; UpdateSelection(); ShowInspector();
+        status.Text = $"Previous positions restored. {ShortTitle(row.Entry.Target.Title)} needs more space. " +
+            (plan.Success ? "Preview updated to fit its observed size. Review it, then Accept layout; Undo is not required." : plan.Error);
     }
     private bool SaveDraft()
     {
