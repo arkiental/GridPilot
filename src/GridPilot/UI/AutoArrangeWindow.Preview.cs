@@ -54,8 +54,11 @@ internal sealed partial class AutoArrangeWindow
     private void Select(Row row)
     {
         if (applying || closing) return;
-        if (PreviewWindows.Validate(row.Entry) is { } error) { status.Text = error; row.Thumbnail?.Dispose(); return; }
         selected = row; ShowInspector(); UpdateSelection();
+        // Inspection is also the recovery route: stale rows must remain selectable so
+        // their Include checkbox and remembered-place controls stay reachable.
+        if (PreviewWindows.Validate(row.Entry) is { } error) { status.Text = error + " Exclude this window to continue."; row.Thumbnail?.Dispose(); }
+        ValidateLiveTargets();
     }
     private void ShowInspector()
     {
@@ -167,9 +170,13 @@ internal sealed partial class AutoArrangeWindow
     }
     private bool ValidateLiveTargets()
     {
-        if (rows.Where(r => r.Include.IsChecked == true).Any(r => PreviewWindows.Validate(r.Entry) is not null))
-        { applyButton.IsEnabled = reroll.IsEnabled = false; status.Text = "A selected window is no longer available. Exclude it or reopen Auto arrange."; return false; }
-        return true;
+        bool valid = !rows.Where(r => r.Include.IsChecked == true).Any(r => PreviewWindows.Validate(r.Entry) is not null);
+        applyButton.IsEnabled = !applying && valid && plan.Success;
+        reroll.IsEnabled = !applying && valid && plan.Success && candidates.Count > 1;
+        if (!valid) status.Text = "An included window is unavailable. Select it to exclude it, or wait for its dialog to close.";
+        else if (targetsUnavailable) status.Text = "Windows are available again. Your proposal is unchanged.";
+        targetsUnavailable = !valid;
+        return valid;
     }
     private void UpdateThumbnails()
     {

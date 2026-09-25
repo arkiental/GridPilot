@@ -66,11 +66,26 @@ internal static partial class Program
             Assert(swapped.Slots.Single(s => s.Id == "1").Bounds == rolled.Slots.Single(s => s.Id == "2").Bounds, "drag-swap path exchanges exact proposed frame dimensions");
             Assert(entries.Select(e => WindowService.VisibleBounds(e.Target.Handle)).SequenceEqual(before), "reroll and swap never move source windows");
             await Task.Delay(100); sheet.UpdateLayout();
+            TestEnableWindow(entries[0].Target.Handle, false);
+            try
+            {
+                await Task.Delay(300);
+                Assert(!Field<Button>(sheet, "applyButton").IsEnabled && !Field<Button>(sheet, "reroll").IsEnabled, "temporary modal unavailability suspends proposal actions");
+            }
+            finally { TestEnableWindow(entries[0].Target.Handle, true); }
+            await Task.Delay(300);
+            Assert(Field<Button>(sheet, "applyButton").IsEnabled && Field<Button>(sheet, "reroll").IsEnabled && ReferenceEquals(swapped, Field<ArrangementPlan>(sheet, "plan")), "modal recovery restores actions without replacing an edited swap");
             var search = Field<TextBox>(sheet, "search"); search.Text = "no owned window matches";
             Assert(sheet.SidebarThumbnailCount == 0 && sheet.PlanThumbnailCount == 2, "filter releases catalog thumbnails while keeping the plan live");
             search.Clear(); await Task.Delay(100); sheet.UpdateLayout(); Assert(sheet.SidebarThumbnailCount == 2, "clearing search restores visible catalog registrations");
             sheet.Width += 70; sheet.Height -= 50; await Task.Delay(100); sheet.UpdateLayout();
             Assert(Thumbnails(sheet).All(t => t.HasRegistration), "resize keeps valid plan and sidebar thumbnail positions");
+            foreach (var thumbnail in Thumbnails(sheet)) thumbnail.Update(sheet, new WindowInteropHelper(sheet).Handle, Rect.Empty);
+            Assert(sheet.PlanThumbnailCount == 0 && sheet.SidebarThumbnailCount == 0, "empty native clipping rectangle safely releases every thumbnail");
+            sheet.MinHeight = 200; sheet.Height = 300; ((ScrollViewer)sheet.Content).ScrollToEnd(); await Task.Delay(200); sheet.UpdateLayout();
+            Assert(sheet.PlanThumbnailCount == 0, "scrolling the plan entirely out of the outer viewport disposes native surfaces without exceptions");
+            sheet.Height = 790; ((ScrollViewer)sheet.Content).ScrollToTop(); await Task.Delay(200); sheet.UpdateLayout();
+            Assert(sheet.PlanThumbnailCount == 2, "returning the clipped plan to view recreates live thumbnails");
             Field<Button>(sheet, "applyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert(accepted is not null && accepted[0].Bounds == swapped.Slots[0].Bounds, "Accept uses the edited proposal instead of recalculating it");
             Assert(!((UIElement)sheet.Content).IsEnabled && sheet.IsVisible, "async placement disables editing and keeps the sheet present while pending");
@@ -88,6 +103,15 @@ internal static partial class Program
         Field<Button>(failure, "applyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30);
         Assert(failure.IsVisible && Field<TextBlock>(failure, "status").Text == "Owned test refusal", "failed async placement stays open even with close-after enabled and shows native reason");
         failure.Close();
+        bool retainedUndo = false; int retries = 0;
+        var rollback = new AutoArrangeWindow(monitor, new(), _ => null, (_, _) => { }, entries,
+            applyAsync: (_, _) => { retainedUndo = true; return Task.FromResult(new PlacementResult(false, "Rollback incomplete; retry Undo.")); },
+            undoAsync: () => { retries++; if (retries == 2) retainedUndo = false; return Task.FromResult(new PlacementResult(retries == 2)); }, canUndo: () => retainedUndo);
+        Field<CheckBox>(rollback, "remember").IsChecked = false;
+        Field<Button>(rollback, "applyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30);
+        var retryUndo = Field<Button>(rollback, "undoButton"); Assert(retryUndo.IsEnabled, "failed placement with retained service snapshots enables Undo on the first attempt");
+        retryUndo.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30); Assert(retryUndo.IsEnabled, "failed Undo retains retry access while snapshots remain");
+        retryUndo.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30); Assert(!retryUndo.IsEnabled, "successful Undo reflects consumed service snapshots"); rollback.Close();
 
         using var manyFixture = StartFixture("--sixteen");
         AutoArrangeWindow? catalog = null;
@@ -110,8 +134,14 @@ internal static partial class Program
                 var destination = (Native.Rect)properties.GetType().GetField("Destination")!.GetValue(properties)!;
                 Assert(destination.Top >= Math.Floor(viewport.Top * dpi.DpiScaleY) && destination.Bottom <= Math.Ceiling(viewport.Bottom * dpi.DpiScaleY), "native DWM destination is clipped to sidebar viewport, not painted over inspector/footer");
             }
+            var recovery = new AutoArrangeWindow(monitor, new(), _ => null, (_, _) => { }, [entries[0], many[0]]);
             manyFixture.Kill(); await manyFixture.WaitForExitAsync(); await Task.Delay(300);
             Assert(catalog.SidebarThumbnailCount == 0 && catalog.PlanThumbnailCount == 0 && !Field<Button>(catalog, "applyButton").IsEnabled, "stale source identities cancel acceptance and release all native previews");
+            var staleRows = Field<System.Collections.IList>(recovery, "rows"); var staleRow = staleRows[1]!;
+            Invoke(recovery, "Select", staleRow);
+            Assert(ReferenceEquals(Field<object>(recovery, "selected"), staleRow) && Field<ContentControl>(recovery, "inspector").Content is not null, "closed unselected row remains inspectable for exclusion");
+            ((CheckBox)staleRow.GetType().GetProperty("Include")!.GetValue(staleRow)!).IsChecked = false;
+            Invoke(recovery, "ValidateLiveTargets"); Assert(Field<Button>(recovery, "applyButton").IsEnabled, "excluding the closed row unblocks remaining live windows without reopening"); recovery.Close();
         }
         finally { catalog?.Close(); if (!manyFixture.HasExited) { manyFixture.Kill(); await manyFixture.WaitForExitAsync(); } }
     }

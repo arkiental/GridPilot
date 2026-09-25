@@ -44,6 +44,11 @@ internal sealed class WindowThumbnail(WindowTarget target) : FrameworkElement, I
 
     internal void Update(Window owner, nint destinationHandle, Rect viewport)
     {
+        // Rect.Empty contains infinite coordinates and negative-infinite dimensions.
+        // Never scale/reconstruct it when a scrolled surface is completely clipped.
+        if (viewport.IsEmpty || viewport.Width <= 0 || viewport.Height <= 0 ||
+            !double.IsFinite(viewport.X) || !double.IsFinite(viewport.Y) || !double.IsFinite(viewport.Width) || !double.IsFinite(viewport.Height))
+        { Dispose(); return; }
         if (!IsVisible || ActualWidth <= 0 || ActualHeight <= 0 || !WindowService.IsSameWindow(target) || Native.IsIconic(target.Handle) || !Native.IsWindowVisible(target.Handle))
         { Dispose(); return; }
         var dpi = VisualTreeHelper.GetDpi(owner);

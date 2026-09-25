@@ -1,6 +1,6 @@
 # Automatic arrangement
 
-Open Focus, select a display, then choose **Auto arrange**. The sheet uses the eligible window catalog captured before Focus opened. HWND + PID identifies each move; app identity supplies only remembered preferences. No window moves until **Arrange windows**. Up to 32 visible, resizable windows on the selected display can participate. Minimized, other-desktop, hung, modal-blocked, and inaccessible elevated windows are omitted.
+Open Focus, select a display, then choose **Auto arrange**. The sheet uses the eligible window catalog captured before Focus opened. HWND + PID identifies each move; app identity supplies only remembered preferences. No window moves until **Accept layout**. Up to 32 visible, resizable windows on the selected display can participate. Minimized, other-desktop, hung, modal-blocked, and inaccessible elevated windows are omitted.
 
 ## Smart workflow
 
@@ -8,17 +8,19 @@ Open Focus, select a display, then choose **Auto arrange**. The sheet uses the e
 
 The bounded planner compares unequal split layouts and an alternate shelf layout. A four-app Blender/Chrome/Explorer/Spotify setup initially targets roughly 60/20/12/8 percent when constraints permit. Minimums, reserved places, locked ratios and shape preferences can change the result. Role preferred sizes are logical sizing hints, not measured native app limits. The planner never silently lowers a minimum, stretches a locked frame or grows a fixed place. Search failure means no suitable candidate was found, not a proof that all possible layouts are impossible.
 
-Select a preview tile to mark it red. The app list shows the corresponding number, role and space weight. Exclusion leaves a window where it is; automatic windows can cover it. An excluded window with a saved place retains its reservation. Ratios and reserved fragments can leave visible unused space.
+The plan and two-column window sidebar show live Windows-compositor previews of individual windows. These show current app content cropped to the proposed frame; they do not predict how an app will reflow after resizing. Select a tile or sidebar card to mark it red and show its inspector below the plan. The inspector includes Make main, space weight, ratio presets (16:9, 2:1 and 1:1), advanced rules and drawn places. Protected or unsupported content can be blank while its identity remains visible. Exclusion leaves a window where it is; automatic windows can cover it. An excluded window with a saved place retains its reservation. Ratios and reserved fragments can leave visible unused space.
+
+Use **Reroll** to cycle distinct feasible proposals without moving any windows. Drag one proposed tile onto another to exchange their exact frames. A swap is refused if a saved fixed place, minimum or locked ratio would be violated. **Accept layout** is the explicit move action. The sheet stays open by default; **Close after placement** changes that behavior. **Undo** restores the last available group, including retained snapshots after an incomplete rollback, and remains available when restoration needs a retry. Escape closes the movable sheet. A closed window can still be selected and excluded; a temporary blocking dialog disables acceptance until the window is available again without discarding the proposal.
 
 ## Draw a permanent app place
 
-1. Choose **Draw place** beside the intended app window.
+1. Select the intended app, then choose **Draw place** in its inspector below the preview.
 2. Drag over the display grid, or enter **column, row, width, height** in cells (one-based) and choose **Select cells**. The editor reports the resulting physical frame dimensions.
 3. Choose **Use this place**, inspect the arrangement, and apply with **Remember** enabled.
 
 The place is saved by executable path or packaged-app identity and display device name. Its rectangle is relative to that display's work area, so it follows a resolution/work-area change; its exact physical size is recomputed and shown, including destination-DPI gaps. User minimums remain physical pixels. A changed work area can make a remembered place conflict with a minimum or ratio: the sheet reports that conflict and requires a redraw or rule change, rather than distorting it.
 
-“Permanent” means remembered across GridPilot/app restarts and used the next time you choose Arrange. It does **not** monitor app launches, move windows continuously, or prevent you moving them manually. Missing apps' saved places remain reserved. **Clear place** releases the app's saved place; it does not delete its parent subgrid. Identity-inaccessible apps can use a place for this session only.
+“Permanent” means remembered across GridPilot/app restarts and used the next time you accept an arrangement. It does **not** monitor app launches, move windows continuously, or prevent you moving them manually. Missing apps' saved places remain reserved. **Clear place** releases the app's saved place; it does not delete its parent subgrid. Identity-inaccessible apps can use a place for this session only.
 
 When several windows belong to the same saved app, choose **Use saved place** on the intended window. GridPilot does not guess by title or silently put every sibling in the same rectangle. Other siblings remain automatic. Only live HWND + PID identities are moved; those identities are never persisted.
 
@@ -30,7 +32,9 @@ The entire parent area is reserved from automatic packing, including empty cells
 
 ## Large-display controls and advanced rules
 
-**Interface size** is independent of placement DPI and coordinates. Auto uses 200% UI sizing for work areas at least 6000 pixels wide at up to 125% display scale; other displays use 100%. Explicit 100/150/200/250% choices are available. The sheet is clamped to available screen space, has a scrollable app list, and the drawing editor zooms local areas to make tiny 8K cells usable. UI enlargement never changes the physical placement geometry.
+On very large logical work areas (at least 6000 × 3000), Smart targets a larger main share and gives spare room to the main workspace instead of inflating supporting apps. Minimums and explicit rules still win; 8K usability depends on actual window dimensions, not enlarged controls.
+
+**View options → Interface size** is independent of placement DPI and coordinates. Auto uses 200% UI sizing for work areas at least 6000 pixels wide at up to 125% display scale; other displays use 100%. Explicit 100/150/200/250% choices are available. The sheet is clamped to available screen space, has a scrollable app list, and the drawing editor zooms local areas to make tiny 8K cells usable. UI enlargement never changes the physical placement geometry.
 
 Expand **App rules** for:
 
@@ -52,8 +56,8 @@ Research informing the policy is recorded in [the design proposal](AUTO_ARRANGE_
 
 ## Reviewed fixture views
 
-These are owned WPF renders from the 7680 × 4320 test desktop at 200% Windows scaling. The named windows are disposable test fixtures, not Blender or Spotify. The renders show WPF content only and exclude native acrylic and titlebar composition. They are not evidence of actual 8K100% desktop ergonomics.
+The first image captures the owned arrangement window after native composition on the 7680 × 4320 desktop at 200% Windows scaling, with Smoked Glass active and real DWM fixture previews. The named windows are disposable test fixtures, not production apps. The subgrid image is a WPF-only render and excludes native acrylic/titlebar composition. Neither certifies actual 8K100% desktop ergonomics.
 
-![Arrangement sheet with Smart layout and saved-place controls](images/auto-arrange-sheet-fixture.png)
+![Arrangement sheet with Smart layout and saved-place controls](images/auto-arrange-live-fixture.png)
 
 ![Zoomed local subgrid editor with numeric cells and visible actions](images/auto-arrange-subgrid-fixture.png)
