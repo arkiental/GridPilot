@@ -114,16 +114,20 @@ public partial class App : Application
             var updated = settings.Clone(); updated.ArrangementPreferences = proposed.ArrangementPreferences;
             updated.ArrangementAreas = proposed.ArrangementAreas; updated.ArrangementUiScale = proposed.ArrangementUiScale;
             return SaveSettings(updated);
-        }, (display, placements) => _ = ArrangeAsync(display, placements), capturedWindows, lastTarget);
+        }, (_, _) => { }, capturedWindows, lastTarget, ArrangeAsync, false, UndoArrangementAsync, () => windows.CanUndo);
         arrangeWindow = next;
         hotkeys?.TryApply(Array.Empty<HotkeyAction>(), out _);
         next.Closed += (_, _) => { arrangeWindow = null; RestoreHotkeys(); };
         next.Show();
     }
-    private async Task ArrangeAsync(DisplayMonitor monitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements)
+    private async Task<PlacementResult> ArrangeAsync(DisplayMonitor monitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements)
     {
         var result = await windows.ArrangeAsync(monitor, placements);
-        Notify(result.Message ?? (result.Success ? "Windows arranged." : "Arrangement failed.")); UpdateTray();
+        UpdateTray(); return result;
+    }
+    private async Task<PlacementResult> UndoArrangementAsync()
+    {
+        var result = await windows.UndoAsync(); UpdateTray(); return result;
     }
     private async Task ApplyPresetAsync(WindowTarget target, PlacementPreset preset)
     {
