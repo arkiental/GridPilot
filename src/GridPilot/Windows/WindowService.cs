@@ -4,7 +4,8 @@ using System.Text;
 namespace GridPilot.Windows;
 
 public sealed record WindowTarget(nint Handle, uint ProcessId, string Title);
-public sealed record PlacementResult(bool Success, string? Message = null);
+public sealed record PlacementConstraint(WindowTarget Target, int MinimumWidth, int MinimumHeight);
+public sealed record PlacementResult(bool Success, string? Message = null, PlacementConstraint? Constraint = null);
 
 public sealed class WindowService
 {
@@ -264,6 +265,7 @@ public sealed class WindowService
         Busy = true;
         var snapshots = new List<Snapshot>();
         var changed = new List<Snapshot>();
+        PlacementConstraint? constraint = null;
         try
         {
             void CheckDisplay()
@@ -332,6 +334,11 @@ public sealed class WindowService
                 if (response.OccupancyFailure is { } conflict) throw conflict;
                 if (!response.Accepted)
                 {
+                    // A stable larger frame at the requested origin is an app size response,
+                    // provided it differs from the pre-request frame. Unchanged originals
+                    // may instead mean the asynchronous request is still queued.
+                    if (response.RejectedBounds is { } rejected && !rejected.Near(snapshots[i].Visible))
+                        constraint = SizeConstraint(p.Target, p.Bounds, rejected);
                     string observed = IsSameWindow(p.Target) ? VisibleBounds(p.Target.Handle).ToString() : "closed";
                     Diagnostics.Write($"Batch refusal HWND={p.Target.Handle} PID={p.Target.ProcessId} requested={p.Bounds} observed={observed}");
                     throw new InvalidOperationException($"{p.Target.Title} did not accept {p.Bounds.Width} × {p.Bounds.Height} px at ({p.Bounds.Left}, {p.Bounds.Top}). Observed frame: {observed}. Enlarge its place or exclude it; no smaller size will be forced.");
@@ -346,28 +353,43 @@ public sealed class WindowService
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
-            var remaining = await RestoreGroupAsync(changed.AsEnumerable().Reverse(), snapshot => RestoreBatchSnapshotAsync(snapshot));
+            var remaining = await RestoreGroupAsync(changed.AsEnumerable().Reverse(), snapshot => RestoreBatchSnapshotAsync(snapshot,
+                constraint is not null && snapshot.Target.Handle == constraint.Target.Handle && snapshot.Target.ProcessId == constraint.Target.ProcessId));
             if (remaining.Count > 0) { batchUndo = remaining; undo = null; }
-            return new(false, ex.Message + (remaining.Count > 0 ? " Some restorations could not be verified; retry Undo." : " Previous placements restored."));
+            return new(false, ex.Message + (remaining.Count > 0 ? " Some restorations could not be verified; retry Undo." : " Previous placements restored."),
+                remaining.Count == 0 ? constraint : null);
         }
         finally { Busy = false; }
     }
 
+    internal static PlacementConstraint? SizeConstraint(WindowTarget target, PixelRect requested, PixelRect observed)
+    {
+        if (!requested.IsValid || !observed.IsValid || observed.Width > 32768 || observed.Height > 32768 ||
+            Math.Abs(observed.Left - requested.Left) > 1 || Math.Abs(observed.Top - requested.Top) > 1 ||
+            observed.Width < requested.Width - 1 || observed.Height < requested.Height - 1) return null;
+        int width = observed.Width > requested.Width + 1 ? observed.Width : 0;
+        int height = observed.Height > requested.Height + 1 ? observed.Height : 0;
+        return width == 0 && height == 0 ? null : new(target, width, height);
+    }
+
     // Send once, then observe convergence. Repeated async requests can outlive the old
     // 600ms retry loop and arrive after rollback. One bounded correction handles DWM/DPI borders.
-    private static async Task<(bool Accepted, InvalidOperationException? OccupancyFailure)> SettleExactAsync(WindowTarget target, PixelRect bounds, Action checkOccupancy)
+    private static async Task<(bool Accepted, InvalidOperationException? OccupancyFailure, PixelRect? RejectedBounds)> SettleExactAsync(WindowTarget target, PixelRect bounds, Action checkOccupancy)
     {
         InvalidOperationException? occupancyFailure = null;
+        PixelRect? observed = null;
+        int unchanged = 0;
         for (int correction = 0; correction < 2; correction++)
         {
-            if (!IsSameWindow(target)) return (false, occupancyFailure);
+            if (!IsSameWindow(target)) return (false, occupancyFailure, null);
             // Do not queue a no-op request which could still run after an unrelated rejection.
-            if (!VisibleBounds(target.Handle).Near(bounds) && !SetVisible(target.Handle, bounds)) return (false, occupancyFailure);
+            if (!VisibleBounds(target.Handle).Near(bounds) && !SetVisible(target.Handle, bounds)) return (false, occupancyFailure, null);
             int stable = 0;
+            unchanged = 0; observed = null;
             for (int poll = 0; poll < 80; poll++)
             {
                 await Task.Delay(25);
-                if (!IsSameWindow(target)) return (false, occupancyFailure);
+                if (!IsSameWindow(target)) return (false, occupancyFailure, null);
                 if (poll % 4 == 0 && occupancyFailure is null)
                 {
                     try { checkOccupancy(); }
@@ -375,12 +397,15 @@ public sealed class WindowService
                 }
                 // An occupancy rejection cannot interrupt observation of an outstanding
                 // async move: unchanged original bounds are not evidence of rollback.
-                if (VisibleBounds(target.Handle).Near(bounds)) { if (++stable >= 8) return (true, occupancyFailure); }
+                var current = VisibleBounds(target.Handle);
+                unchanged = observed is { } previous && current.Near(previous) ? unchanged + 1 : 1;
+                observed = current;
+                if (current.Near(bounds)) { if (++stable >= 8) return (true, occupancyFailure, null); }
                 else stable = 0;
             }
             if (occupancyFailure is not null) break; // Do not add more queued requests after cancellation.
         }
-        return (false, occupancyFailure);
+        return (false, occupancyFailure, unchanged >= 8 ? observed : null);
     }
 
     internal static IReadOnlyList<PixelRect> RecoveryProbes(PixelRect original, PixelRect work, PixelRect current)

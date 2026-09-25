@@ -23,6 +23,13 @@ internal static partial class Program
         Assert(swap.Success && swap.Slots[0].Bounds == b.Bounds && swap.Slots[1].Bounds == a.Bounds, "unequal swap preserves exact position AND size");
         Assert(!PlacementInteractions.Swap(work, a with { MinimumWidth = 1500 }, b).Success, "swap refuses incompatible minimum without resizing");
         var atMinimum = new PixelRect(-1800, 20, -1480, 260);
+        var identity = new WindowTarget(1, 2, "constrained");
+        var requested = new PixelRect(6148, 3383, 7672, 4216);
+        Assert(WindowService.SizeConstraint(identity, requested, new(6148, 3383, 7748, 4583)) is { MinimumWidth: 1600, MinimumHeight: 1200 }, "Spotify response learns physical dimensions, including an off-work-area frame");
+        Assert(WindowService.SizeConstraint(identity, requested, requested with { Bottom = 4583 }) is { MinimumWidth: 0, MinimumHeight: 1200 }, "unconstrained axis is not learned as a minimum");
+        Assert(WindowService.SizeConstraint(identity, requested, requested) is null, "exact response does not change constraints");
+        Assert(WindowService.SizeConstraint(identity, requested, new(0, 0, 1600, 1200)) is null, "wrong-origin response cannot teach size constraints");
+        Assert(WindowService.SizeConstraint(identity, requested, requested with { Right = 7748, Bottom = 4000 }) is null, "mixed smaller/larger response is not treated as a minimum");
         var recoveryProbes = WindowService.RecoveryProbes(atMinimum, work, atMinimum);
         Assert(recoveryProbes.Count is > 0 and <= 2 && recoveryProbes.All(p => p.Width >= atMinimum.Width && p.Height >= atMinimum.Height && !p.Near(atMinimum)), "recovery probes preserve minimum dimensions and require actual native response");
         Assert(recoveryProbes.All(p => p.Left >= work.Left && p.Top >= work.Top && p.Right <= work.Right && p.Bottom <= work.Bottom), "recovery uses available on-screen slack");
@@ -41,6 +48,7 @@ internal static partial class Program
     {
         await PendingPlacementRecoveryTests();
         await MinimumPlacementRecoveryTest();
+        await ConstrainedArrangementRetryTest();
         using (var delayed = StartFixture("--slow-batch-resize"))
         {
             try
@@ -191,6 +199,33 @@ internal static partial class Program
             }
         }
     }
+    private static async Task ConstrainedArrangementRetryTest()
+    {
+        using var fixture = StartFixture("--constrained");
+        try
+        {
+            var hwnd = await WaitForFixture(fixture); await Task.Delay(100);
+            var target = WindowService.Capture(hwnd, out _)!;
+            var monitor = MonitorService.ForWindow(hwnd, MonitorService.GetAll());
+            var original = WindowService.VisibleBounds(hwnd);
+            var request = new PixelRect(monitor.Work.Left + 30, monitor.Work.Top + 30, monitor.Work.Left + 350, monitor.Work.Top + 270);
+            var service = new WindowService(() => PreviewWindows.Capture().Where(e => e.Target.ProcessId == fixture.Id).ToArray());
+            var rejected = await service.ArrangeAsync(monitor, [(target, request)]);
+            Assert(!rejected.Success && rejected.Constraint is not null && !service.CanUndo, "responsive size refusal automatically verifies rollback without requiring Undo: " + rejected.Message);
+            Assert(WindowService.VisibleBounds(hwnd).Near(original), "automatic recovery restores original bounds");
+            var constraint = rejected.Constraint!;
+            Assert(constraint.Target == target && constraint.MinimumWidth > request.Width && constraint.MinimumHeight > request.Height, "constraint retains exact HWND/PID and native minimum response");
+            var plan = SmartArrangement.Calculate(monitor.Work, [new("fixture", 0, constraint.MinimumWidth, constraint.MinimumHeight, ArrangementRole.Companion)], 8, monitor.Dpi);
+            Assert(plan.Success, "learned constraint creates a feasible new preview");
+            var accepted = await service.ArrangeAsync(monitor, [(target, plan.Slots[0].Bounds)]);
+            Assert(accepted.Success, "next arrangement succeeds without an intervening Undo: " + accepted.Message);
+            await Task.Delay(400);
+            Assert(WindowService.VisibleBounds(hwnd).Near(plan.Slots[0].Bounds), "accepted larger frame stays in place");
+            Assert((await service.UndoAsync()).Success && WindowService.VisibleBounds(hwnd).Near(original), "successful retry keeps real grouped Undo");
+        }
+        finally { if (!fixture.HasExited) { fixture.Kill(); await fixture.WaitForExitAsync(); } }
+    }
+
     private static async Task MinimumPlacementRecoveryTest()
     {
         using var fixture = StartFixture("--constrained");

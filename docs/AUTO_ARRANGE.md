@@ -47,7 +47,9 @@ Remember saves rules, places, subgrids and UI size. Same-app siblings need match
 
 ## Placement safety and limitations
 
-Actual visible bounds are verified after each native move. A refusing/stale target or changed display topology stops the batch and rolls touched windows back using the existing verified restoration path. An app's native minimum can still reject a geometrically valid preview; there is no automatic retry with a different layout. Failed restoration snapshots remain available for Undo; successful batches create one grouped Undo. Closed windows are skipped during Undo.
+Actual visible bounds are verified after each native move. A refusing/stale target or changed display topology stops the batch and rolls touched windows back using the existing verified restoration path. If an app responds with a stable larger frame at the requested origin, different from its starting frame, GridPilot attempts verified recovery automatically. After all touched windows are restored, Auto arrange uses the observed larger dimensions to rebuild the preview. Review it and press **Accept layout** again; the revised plan is never applied automatically. A successful recovery does not require a separate Undo. If no layout fits (including a saved place that is too small), acceptance is disabled and the conflict is explained.
+
+Observed dimensions belong only to that HWND + PID during the open editor session; they do not overwrite saved minimum rules or affect another document of the same app. Reopening the editor may require relearning a size; set **Minimum frame** explicitly to remember it across sessions. An unchanged frame may mean a queued native request rather than a genuine minimum, so such failures retain the existing conservative Undo recovery. Failed restoration snapshots remain available for Undo; successful batches create one grouped Undo. Closed windows are skipped during Undo.
 
 One display is arranged per operation. The native display device name is the current monitor key, not a portable physical-monitor serial number: reassigned device names after hardware reconnection require checking the preview. A saved slot reserves space even when its app is absent. The planner uses bounded candidate policies and may leave fragments unused. Real full Spotify windows are not assumed to accept Miniplayer dimensions; GridPilot does not switch app modes.
 
@@ -61,3 +63,4 @@ The first image captures the owned arrangement window after native composition o
 ![Arrangement sheet with Smart layout and saved-place controls](images/auto-arrange-live-fixture.png)
 
 ![Zoomed local subgrid editor with numeric cells and visible actions](images/auto-arrange-subgrid-fixture.png)
+
