@@ -245,7 +245,8 @@ public sealed class WindowService
         finally { Busy = false; }
     }
 
-    internal async Task<PlacementResult> ArrangeAsync(DisplayMonitor expected, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements)
+    internal async Task<PlacementResult> ArrangeAsync(DisplayMonitor expected, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements,
+        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>? expectedOriginals = null)
     {
         if (Busy) return new(false, "A placement is already in progress.");
         if (placements.Count is < 1 or > 32 || placements.Select(p => (p.Target.Handle, p.Target.ProcessId)).Distinct().Count() != placements.Count)
@@ -262,6 +263,28 @@ public sealed class WindowService
                     throw new InvalidOperationException("The display changed. Open Auto arrange again.");
             }
             CheckDisplay();
+            void CheckOriginals(bool untouchedOnly)
+            {
+                foreach (var original in expectedOriginals ?? [])
+                {
+                    if (untouchedOnly && changed.Any(s => s.Target.Handle == original.Target.Handle && s.Target.ProcessId == original.Target.ProcessId)) continue;
+                    if (!IsSameWindow(original.Target) || !VisibleBounds(original.Target.Handle).Near(original.Bounds))
+                        throw new InvalidOperationException("A previewed window moved or closed. Refresh the grid before applying this plan.");
+                }
+            }
+            CheckOriginals(false);
+            for (int a = 0; a < placements.Count; a++)
+            for (int b = a + 1; b < placements.Count; b++)
+                if (PlacementInteractions.Overlaps(placements[a].Bounds, placements[b].Bounds))
+                {
+                    // An explicit two-window swap preserves their existing overlapping geometry.
+                    // No other overlapping batch is accepted.
+                    var first = expectedOriginals?.FirstOrDefault(o => o.Target.Handle == placements[a].Target.Handle && o.Target.ProcessId == placements[a].Target.ProcessId);
+                    var second = expectedOriginals?.FirstOrDefault(o => o.Target.Handle == placements[b].Target.Handle && o.Target.ProcessId == placements[b].Target.ProcessId);
+                    if (placements.Count != 2 || first is null || second is null || first.Value.Target is null || second.Value.Target is null ||
+                        placements[a].Bounds != second.Value.Bounds || placements[b].Bounds != first.Value.Bounds)
+                        throw new InvalidOperationException("The placement plan contains overlapping windows.");
+                }
             foreach (var p in placements)
             {
                 if (!p.Bounds.IsValid || p.Bounds.Left < expected.Work.Left || p.Bounds.Top < expected.Work.Top || p.Bounds.Right > expected.Work.Right || p.Bounds.Bottom > expected.Work.Bottom)
@@ -275,25 +298,24 @@ public sealed class WindowService
                 CheckDisplay();
                 var p = placements[i];
                 if (!IsSameWindow(p.Target) || Capture(p.Target.Handle, out _) is null) throw new InvalidOperationException("A selected window became unavailable.");
+                CheckOriginals(true);
                 changed.Add(snapshots[i]);
                 if (Native.IsZoomed(p.Target.Handle))
                 {
                     Native.ShowWindowAsync(p.Target.Handle, 9);
-                    for (int retry = 0; retry < 8 && Native.IsZoomed(p.Target.Handle); retry++) await Task.Delay(25);
+                    for (int retry = 0; retry < 80 && IsSameWindow(p.Target) && Native.IsZoomed(p.Target.Handle); retry++) await Task.Delay(25);
+                    if (!IsSameWindow(p.Target) || Native.IsZoomed(p.Target.Handle)) throw new InvalidOperationException($"{p.Target.Title} did not finish restoring from maximized mode.");
                 }
-                bool accepted = false;
-                for (int retry = 0; retry < 3; retry++)
+                bool accepted = await SettleExactAsync(p.Target, p.Bounds);
+                if (!accepted)
                 {
-                    if (!IsSameWindow(p.Target) || !SetVisible(p.Target.Handle, p.Bounds)) break;
-                    await Task.Delay(125);
-                    if (!IsSameWindow(p.Target)) break;
-                    var first = VisibleBounds(p.Target.Handle);
-                    await Task.Delay(75);
-                    if (IsSameWindow(p.Target) && first.Near(p.Bounds) && VisibleBounds(p.Target.Handle).Near(p.Bounds)) { accepted = true; break; }
+                    string observed = IsSameWindow(p.Target) ? VisibleBounds(p.Target.Handle).ToString() : "closed";
+                    Diagnostics.Write($"Batch refusal HWND={p.Target.Handle} PID={p.Target.ProcessId} requested={p.Bounds} observed={observed}");
+                    throw new InvalidOperationException($"{p.Target.Title} did not accept {p.Bounds.Width} × {p.Bounds.Height} px at ({p.Bounds.Left}, {p.Bounds.Top}). Observed frame: {observed}. Enlarge its place or exclude it; no smaller size will be forced.");
                 }
-                if (!accepted) throw new InvalidOperationException($"{p.Target.Title} rejected its tile (often an app minimum size). Increase its minimum or exclude it.");
             }
             CheckDisplay();
+            CheckOriginals(true);
             if (placements.Any(p => !IsSameWindow(p.Target) || !VisibleBounds(p.Target.Handle).Near(p.Bounds)))
                 throw new InvalidOperationException("A window changed size while arranging.");
             batchUndo = snapshots; undo = null;
@@ -306,6 +328,25 @@ public sealed class WindowService
             return new(false, ex.Message + (remaining.Count > 0 ? " Some restorations could not be verified; retry Undo." : " Previous placements restored."));
         }
         finally { Busy = false; }
+    }
+
+    // Send once, then observe convergence. Repeated async requests can outlive the old
+    // 600ms retry loop and arrive after rollback. One bounded correction handles DWM/DPI borders.
+    private static async Task<bool> SettleExactAsync(WindowTarget target, PixelRect bounds)
+    {
+        for (int correction = 0; correction < 2; correction++)
+        {
+            if (!IsSameWindow(target) || !SetVisible(target.Handle, bounds)) return false;
+            int stable = 0;
+            for (int poll = 0; poll < 80; poll++)
+            {
+                await Task.Delay(25);
+                if (!IsSameWindow(target)) return false;
+                if (VisibleBounds(target.Handle).Near(bounds)) { if (++stable >= 8) return true; }
+                else stable = 0;
+            }
+        }
+        return false;
     }
 
     private static async Task<bool> RestoreBatchSnapshotAsync(Snapshot snapshot) =>

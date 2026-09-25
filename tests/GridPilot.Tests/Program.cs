@@ -44,7 +44,7 @@ internal static partial class Program
                 application.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Parse(resources.ToString()));
                 application.Startup += async (_, _) =>
                 {
-                    try { if (args.Contains("--arrangement")) await ArrangementNativeTests(); else if (args.Contains("--sidebar")) await SidebarNativeTests(); else await NativeTests(); } catch (Exception ex) { failure = ex; }
+                    try { if (args.Contains("--interactions")) await PlacementInteractionNativeTests(); else if (args.Contains("--arrangement")) await ArrangementNativeTests(); else if (args.Contains("--sidebar")) await SidebarNativeTests(); else await NativeTests(); } catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
                 };
                 application.Run();
@@ -57,6 +57,7 @@ internal static partial class Program
     private static void CoreTests()
     {
         ArrangementTests();
+        PlacementInteractionTests();
         var work = new PixelRect(-1920, -300, 0, 780);
         Assert(PlacementMath.Calculate(work, Region.Full, 8, 96) == new PixelRect(-1912, -292, -8, 772), "negative desktop origin");
         Assert(PlacementMath.Calculate(work, Region.Full, 8, 192) == new PixelRect(-1904, -284, -16, 764), "200% gap conversion");
@@ -322,7 +323,7 @@ internal static partial class Program
             search.Clear();
             WindowTarget? changed = null, applied = null;
             panel.TargetChanged += value => changed = value;
-            panel.PlacementRequested += (value, _, _) => applied = value;
+            panel.BatchPlacementRequested += (_, values, _) => applied = values[0].Target;
             var next = entries.Single(e => e.Target.Title.Contains("Sidebar 02"));
             panel.SelectSidebarWindow(next);
             Assert(panel.Target == next.Target && changed == next.Target, "sidebar selection publishes the explicit HWND target");
@@ -332,8 +333,12 @@ internal static partial class Program
             panel.SelectSidebarWindow(selected);
             Assert(panel.Target == next.Target, "newly blocked thumbnail cannot replace the selected target");
             TestEnableWindow(selected.Target.Handle, true);
+            typeof(GridPanel).GetField("capturedWindows", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(panel, new[] { next });
+            panel.UpdateLayout(); await Task.Delay(60);
             panel.Commit(new Region(0, 0, .5, 1));
-            Assert(applied == next.Target && panel.ThumbnailCount == 0, "commit uses sidebar target and disposes thumbnails");
+            Assert(applied == next.Target && panel.IsVisible, "commit uses sidebar target and keeps the panel open");
+            panel.UpdateLayout(); await Task.Delay(60);
+            Assert(panel.ThumbnailCount > 0, "persistent panel retains usable native previews");
         }
         finally { panel?.Dismiss(false); if (!fixture.HasExited) { fixture.Kill(); await fixture.WaitForExitAsync(); } }
         Console.WriteLine("Sidebar: 16 windows, search, real occluded DWM pixels, collapse/filter disposal, selection and placement routing passed.");
@@ -545,11 +550,12 @@ internal static partial class Program
             {
                 WindowTarget? changed = null, applied = null;
                 panel.TargetChanged += value => changed = value;
-                panel.PlacementRequested += (value, _, _) => applied = value;
+                panel.BatchPlacementRequested += (_, values, _) => applied = values[0].Target;
                 panel.PickWindow(new Point(20, 20), hitX, hitY, false);
                 Assert(panel.Target.Handle == front.Target.Handle && changed?.Handle == front.Target.Handle, "Ctrl selection changes panel target and publishes new target");
                 var grid = (SelectionGrid)panel.FindName("GridControl");
                 Assert(grid.Selection is null && grid.TargetBounds == front.Bounds, "target switch clears placement and moves red marker to selected snapshot bounds");
+                typeof(GridPanel).GetField("capturedWindows", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(panel, new[] { front });
                 panel.Commit(new Region(0, 0, .5, 1));
                 Assert(applied?.Handle == front.Target.Handle, "grid commit dispatches selected target rather than originally captured target");
             }
@@ -558,8 +564,9 @@ internal static partial class Program
             try
             {
                 WindowTarget? applied = null;
-                presets.PresetRequested += (value, _, _) => applied = value;
+                presets.BatchPlacementRequested += (_, values, _) => applied = values[0].Target;
                 presets.PickWindow(new Point(20, 20), hitX, hitY, false);
+                typeof(GridPanel).GetField("capturedWindows", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(presets, new[] { front });
                 presets.ApplySavedPreset(new PlacementPreset());
                 Assert(applied?.Handle == front.Target.Handle, "saved preset dispatches selected target");
             }
@@ -652,7 +659,7 @@ internal static partial class Program
                 return 0;
             });
         };
-        if (args.Contains("--delayed-resize")) window.Loaded += (_, _) =>
+        if (args.Contains("--delayed-resize") || args.Contains("--slow-batch-resize")) window.Loaded += (_, _) =>
         {
             var handle = new WindowInteropHelper(window).Handle;
             Native.GetWindowRect(handle, out var original);
@@ -663,7 +670,7 @@ internal static partial class Program
                     System.Runtime.InteropServices.Marshal.ReadInt32(lParam, IntPtr.Size * 2 + 8) < original.Pixels.Width - 50)
                 {
                     armed = false;
-                    Thread.Sleep(375); // Emulate a busy but responsive application's first resize handler.
+                    Thread.Sleep(args.Contains("--slow-batch-resize") ? 1000 : 375); // Emulate a busy but responsive application's first resize handler.
                     window.Dispatcher.BeginInvoke(() => window.Title = "GridPilot test window - Delay exercised");
                 }
                 return 0;

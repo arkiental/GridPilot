@@ -13,7 +13,7 @@ public sealed class SelectionGrid : FrameworkElement
 {
     private int columns = 6, rows = 6;
     private int anchorColumn, anchorRow, cursorColumn, cursorRow;
-    private bool dragging, keyboardStarted, picking, pickBackwards;
+    private bool dragging, keyboardStarted, picking, pickBackwards, swapping;
     private Point pickOrigin;
     private Region? selection;
     private DesktopSnapshot? desktop;
@@ -33,6 +33,12 @@ public sealed class SelectionGrid : FrameworkElement
     public event Action? Interrupted;
     internal event Action<Point, int, int, bool>? WindowPickRequested;
     internal event Action? WindowPickStarted;
+    internal event Action<int, int>? SwapStarted;
+    internal event Action<int, int>? SwapMoved;
+    internal event Action<int, int>? SwapReleased;
+    internal event Action<int>? SwapCycle;
+    internal IReadOnlyList<(PixelRect Bounds, string Label)> PlanFrames { get; set; } = [];
+    private (int X, int Y) Screen(Point point) => Layout.ToScreen(point);
 
     public SelectionGrid()
     {
@@ -57,7 +63,7 @@ public sealed class SelectionGrid : FrameworkElement
     public void Reset()
     {
         dragging = false;
-        picking = false;
+        picking = false; swapping = false; PlanFrames = [];
         if (IsMouseCaptured) ReleaseMouseCapture();
         keyboardStarted = false;
         selection = null;
@@ -120,6 +126,13 @@ public sealed class SelectionGrid : FrameworkElement
             }
             catch (ArgumentException) { }
         }
+        foreach (var frame in PlanFrames)
+        {
+            var rectangle = layout.Map(frame.Bounds);
+            dc.DrawRectangle(ColorBrush(65, 255, 151, 64), new Pen(Brush("AccentBrush"), 2), rectangle);
+            var label = new FormattedText(frame.Label, CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, new Typeface("Segoe UI"), 11, Brush("TextBrush"), VisualTreeHelper.GetDpi(this).PixelsPerDip) { MaxTextWidth = Math.Max(1, rectangle.Width - 8), MaxTextHeight = Math.Max(1, rectangle.Height - 8), Trimming = TextTrimming.CharacterEllipsis };
+            dc.DrawText(label, new Point(rectangle.Left + 4, rectangle.Top + 4));
+        }
         // Mark the original target, not the panel which now owns keyboard focus.
         if (TargetBounds is { IsValid: true } target)
         {
@@ -154,6 +167,12 @@ public sealed class SelectionGrid : FrameworkElement
     {
         if (!WorkRectangle.Contains(e.GetPosition(this))) return;
         Focus();
+        if (desktop is not null && (Keyboard.Modifiers & ModifierKeys.Alt) != 0)
+        {
+            Reset(); swapping = CaptureMouse();
+            if (swapping) { var screen = Screen(e.GetPosition(this)); SwapStarted?.Invoke(screen.X, screen.Y); }
+            e.Handled = true; return;
+        }
         if (desktop is not null && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
         {
             Reset();
@@ -173,6 +192,12 @@ public sealed class SelectionGrid : FrameworkElement
     }
     protected override void OnMouseMove(MouseEventArgs e)
     {
+        if (swapping)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed) CancelDrag();
+            else { var screen = Screen(e.GetPosition(this)); SwapMoved?.Invoke(screen.X, screen.Y); }
+            e.Handled = true; return;
+        }
         if (picking) { if (e.LeftButton != MouseButtonState.Pressed) CancelDrag(); e.Handled = true; return; }
         if (!dragging) return;
         if (e.LeftButton != MouseButtonState.Pressed) { CancelDrag(); return; }
@@ -182,6 +207,14 @@ public sealed class SelectionGrid : FrameworkElement
     }
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
+        if (swapping)
+        {
+            bool swapInside = WorkRectangle.Contains(e.GetPosition(this));
+            swapping = false; ReleaseMouseCapture();
+            if (swapInside) { var screen = Screen(e.GetPosition(this)); SwapReleased?.Invoke(screen.X, screen.Y); }
+            else CancelDrag();
+            e.Handled = true; return;
+        }
         if (picking)
         {
             var point = e.GetPosition(this);
@@ -202,8 +235,13 @@ public sealed class SelectionGrid : FrameworkElement
         else if (!inside) { Reset(); Interrupted?.Invoke(); }
         e.Handled = true;
     }
+    protected override void OnMouseWheel(MouseWheelEventArgs e)
+    {
+        if (swapping) { SwapCycle?.Invoke(e.Delta > 0 ? -1 : 1); e.Handled = true; return; }
+        base.OnMouseWheel(e);
+    }
     private void CancelDrag() { dragging = false; Reset(); Interrupted?.Invoke(); }
-    protected override void OnLostMouseCapture(MouseEventArgs e) { if (dragging || picking) CancelDrag(); base.OnLostMouseCapture(e); }
+    protected override void OnLostMouseCapture(MouseEventArgs e) { if (dragging || picking || swapping) CancelDrag(); base.OnLostMouseCapture(e); }
     protected override void OnGotKeyboardFocus(KeyboardFocusChangedEventArgs e) { InvalidateVisual(); base.OnGotKeyboardFocus(e); }
     protected override void OnLostKeyboardFocus(KeyboardFocusChangedEventArgs e) { InvalidateVisual(); base.OnLostKeyboardFocus(e); }
     protected override void OnKeyDown(KeyEventArgs e)
