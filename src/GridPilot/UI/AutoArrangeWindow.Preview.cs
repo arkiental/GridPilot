@@ -46,7 +46,7 @@ internal sealed partial class AutoArrangeWindow
         var content = new Grid(); content.RowDefinitions.Add(new()); content.RowDefinitions.Add(new() { Height = new GridLength(25) }); content.Children.Add(thumbnail);
         row.Icon.Source = AppVisual.Placeholder(row.Entry.Target.Title).Icon;
         var caption = new DockPanel(); caption.Children.Add(row.Icon); caption.Children.Add(new TextBlock { Text = $"{rows.IndexOf(row) + 1}. {row.Entry.Target.Title}", FontSize = 10, Margin = new(1, 3, 5, 3), TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center }); Grid.SetRow(caption, 1); content.Children.Add(caption);
-        var card = new Border { Child = content, Height = 115, Margin = new(2, 2, 4, 4), BorderThickness = new(2), Padding = new(1), CornerRadius = new(5), Background = Brushes.Transparent, Focusable = true, ToolTip = row.Entry.Target.Title + "\nClick to select · drag onto another window to swap proposed frames" };
+        var card = new Border { Child = content, Height = 115, Margin = new(2, 2, 4, 4), BorderThickness = new(2), Padding = new(1), CornerRadius = new(5), Background = Brushes.Transparent, Focusable = true, ToolTip = row.Entry.Target.Title + "\nClick to select · drag to swap · Shift-drag to split into halves" };
         card.SetResourceReference(Border.BorderBrushProperty, "BorderBrush"); row.Card = card; row.Thumbnail = thumbnail; cards.Children.Add(card);
         System.Windows.Automation.AutomationProperties.SetName(card, row.Entry.Target.Title); WireSelectionAndSwap(card, row);
         card.KeyDown += (_, e) => { if (e.Key is Key.Enter or Key.Space) { Select(row); e.Handled = true; } };
@@ -116,11 +116,22 @@ internal sealed partial class AutoArrangeWindow
             if (Math.Abs(point.X - origin.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(point.Y - origin.Y) < SystemParameters.MinimumVerticalDragDistance) return;
             down = null;
             if (!plan.Success || !plan.Slots.Any(s => s.Id == Id(row))) return;
-            DragDrop.DoDragDrop(element, new DataObject(dragFormat, Id(row)), DragDropEffects.Move);
+            try { DragDrop.DoDragDrop(element, new DataObject(dragFormat, Id(row)), DragDropEffects.Move); }
+            finally { ClearSplitPreview(); }
         };
         element.AllowDrop = true;
-        element.DragOver += (_, e) => { e.Effects = !applying && e.Data.GetDataPresent(dragFormat) ? DragDropEffects.Move : DragDropEffects.None; e.Handled = true; };
-        element.Drop += (_, e) => { if (!applying && e.Data.GetData(dragFormat) is string from) SwapProposal(from, Id(row)); e.Handled = true; };
+        element.DragOver += (_, e) => PreviewArrangementDrop(element, row, e);
+        element.DragLeave += (_, _) => ClearSplitPreview();
+        element.Drop += (_, e) =>
+        {
+            ClearSplitPreview();
+            if (!applying && e.Data.GetData(dragFormat) is string from)
+            {
+                if ((e.KeyStates & DragDropKeyStates.ShiftKey) != 0) SplitProposal(from, Id(row), DropSide(element, e));
+                else SwapProposal(from, Id(row));
+            }
+            e.Handled = true;
+        };
     }
     private string Id(Row row) => (rows.IndexOf(row) + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
     private void SwapProposal(string from, string to)
@@ -148,7 +159,7 @@ internal sealed partial class AutoArrangeWindow
     }
     private void RenderPlan()
     {
-        DisposePlanViews(); canvas.Children.Clear();
+        ClearSplitPreview(); DisposePlanViews(); canvas.Children.Clear();
         foreach (var region in settings.ArrangementAreas.Where(a => a.Monitor == monitor.Device).Select(a => a.Region).Concat(CurrentPlaces().Select(p => p.Region)).Distinct())
         {
             var reserved = new Border { Width = (region.Right - region.Left) * canvas.Width, Height = (region.Bottom - region.Top) * canvas.Height, BorderBrush = Brushes.DimGray, BorderThickness = new(1), Background = Brushes.Transparent, IsHitTestVisible = false };
@@ -162,7 +173,7 @@ internal sealed partial class AutoArrangeWindow
             var thumbnail = new WindowThumbnail(row.Entry.Target) { IsHitTestVisible = false, Margin = new(2) };
             var content = new Grid(); content.RowDefinitions.Add(new()); content.RowDefinitions.Add(new() { Height = new GridLength(Math.Min(28, slot.Bounds.Height * scale * .3)) }); content.Children.Add(thumbnail);
             var label = new TextBlock { Text = $"{slot.Id}. {row.Entry.Target.Title} · {slot.Bounds.Width} × {slot.Bounds.Height}", FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new(4, 1, 4, 1), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false }; Grid.SetRow(label, 1); content.Children.Add(label);
-            var frame = new Border { Width = slot.Bounds.Width * scale, Height = slot.Bounds.Height * scale, BorderThickness = new(3), Child = content, Background = Brushes.Transparent, Focusable = true, ToolTip = row.Entry.Target.Title + $"\nProposed frame: {slot.Bounds.Width} × {slot.Bounds.Height}\nLive current content, cropped to fit. Drag to swap frames." };
+            var frame = new Border { Width = slot.Bounds.Width * scale, Height = slot.Bounds.Height * scale, BorderThickness = new(3), Child = content, Background = Brushes.Transparent, Focusable = true, ToolTip = row.Entry.Target.Title + $"\nProposed frame: {slot.Bounds.Width} × {slot.Bounds.Height}\nLive current content, cropped to fit. Drag to swap frames. Hold Shift to split: left, right, top or bottom." };
             Canvas.SetLeft(frame, (slot.Bounds.Left - monitor.Work.Left) * scale); Canvas.SetTop(frame, (slot.Bounds.Top - monitor.Work.Top) * scale); canvas.Children.Add(frame);
             planViews.Add((row, thumbnail, frame)); WireSelectionAndSwap(frame, row);
         }
@@ -191,7 +202,8 @@ internal sealed partial class AutoArrangeWindow
             var content = (ScrollViewer)Content;
             if (content.Template.FindName("PART_ScrollContentPresenter", content) is ScrollContentPresenter outer) clip.Intersect(Viewport(outer));
             var previewClip = Rect.Intersect(clip, Viewport(canvas));
-            foreach (var view in planViews) view.Thumbnail.Update(this, handle, previewClip);
+            foreach (var view in planViews)
+                if (view.Row != splitTarget) view.Thumbnail.Update(this, handle, previewClip);
             if (sidebar.Template.FindName("PART_ScrollContentPresenter", sidebar) is ScrollContentPresenter presenter)
             {
                 var sidebarClip = Rect.Intersect(clip, Viewport(presenter));

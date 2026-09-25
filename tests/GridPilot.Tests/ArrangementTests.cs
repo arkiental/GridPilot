@@ -201,6 +201,7 @@ internal static partial class Program
         Assert(settings.Clone().ArrangementPreferences[0].MinimumWidth == 640 && settings.Validate() is null, "app rules persist through settings serialization");
         settings.ArrangementPreferences.Add(new() { AppId = "EXE:TEST" }); Assert(settings.Validate() is not null, "duplicate executable rules rejected");
         SmartArrangementTests();
+        ArrangementSplitTests();
     }
 
     private static void SmartArrangementTests()

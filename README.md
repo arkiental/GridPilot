@@ -96,3 +96,5 @@ The publish script creates a self-contained folder and ZIP in `artifacts`. `Inst
 - `docs/VALIDATION.md`: verification results and remaining hardware coverage.
 
 Optional diagnostic switches: `--background` starts in the tray; `--diagnostics` records events in `%LOCALAPPDATA%\GridPilot\diagnostics.log`; `--ui-test` exposes the grid as a regular taskbar window for desktop automation. Normal operation does not write diagnostic traces. Unexpected errors are recorded in `errors.log` in the same folder. There is no network service, account, or telemetry.
+
+Auto Arrange supports **Shift-drag splitting**: drag onto a window and hold Shift to choose its left, right, top or bottom half. Review the preview, then Accept layout. See [Auto Arrange](docs/AUTO_ARRANGE.md).

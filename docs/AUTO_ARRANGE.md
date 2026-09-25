@@ -64,3 +64,11 @@ The first image captures the owned arrangement window after native composition o
 
 ![Zoomed local subgrid editor with numeric cells and visible actions](images/auto-arrange-subgrid-fixture.png)
 
+
+## Shift-drag split
+
+Drag an included window from the preview or catalog onto another included window while holding Shift. Four directional target cells choose **left, top, right or bottom**. The highlighted cell and orange outline show the half that the dragged window will occupy; the target takes the opposite half. The target thumbnail is temporarily hidden so the split guide remains visible above native DWM content. Releasing Shift restores normal frame swapping; leaving the target or cancelling clears the guide.
+
+Dropping edits only the proposal. The dragged window's previous area becomes empty; other windows retain their exact frames. Repeat on another frame to subdivide further. Click **Accept layout** to move the windows, then use the existing grouped **Undo** to restore their previous positions. Reroll or changing arrangement rules replaces the edited proposal.
+
+A split uses the configured gap at the target display's DPI and preserves the target frame's outer edges. Minimum sizes, locked ratios and saved places are enforced for both windows; impossible splits show a refusal and leave the proposal unchanged. Clear a saved place before splitting that window. The four cells are directional halves, not quarter-sized destinations or persistent saved subgrids.
