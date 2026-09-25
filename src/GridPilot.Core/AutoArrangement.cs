@@ -9,13 +9,37 @@ public sealed class ArrangementPreference
     public int GridHeight { get; set; }
     public int MinimumWidth { get; set; } = 320;
     public int MinimumHeight { get; set; } = 240;
+    public ArrangementRole Role { get; set; }
+    public double SpaceWeight { get; set; } = 1;
+    public List<ArrangementPlace> Places { get; set; } = [];
     public bool IsValid => !string.IsNullOrWhiteSpace(AppId) && AppId.Length <= 32768 &&
         double.IsFinite(AspectRatio) && (AspectRatio == 0 || AspectRatio is >= .1 and <= 10) &&
         GridWidth is >= 0 and <= 12 && GridHeight is >= 0 and <= 12 && (GridWidth == 0) == (GridHeight == 0) &&
-        MinimumWidth is >= 1 and <= 32768 && MinimumHeight is >= 1 and <= 32768;
+        MinimumWidth is >= 1 and <= 32768 && MinimumHeight is >= 1 and <= 32768 && Enum.IsDefined(Role) &&
+        double.IsFinite(SpaceWeight) && SpaceWeight is >= .25 and <= 4 && Places is not null && Places.Count <= 32 &&
+        Places.All(p => p is not null && p.IsValid) && Places.Select(p => p.Monitor).Distinct(StringComparer.OrdinalIgnoreCase).Count() == Places.Count;
 }
 
-public sealed record ArrangementItem(string Id, double AspectRatio, int MinimumWidth, int MinimumHeight);
+public enum ArrangementRole { Automatic, Workspace, Normal, Utility, Companion }
+public sealed class ArrangementPlace
+{
+    public string Monitor { get; set; } = "";
+    public Region Region { get; set; }
+    public string? AreaId { get; set; }
+    public bool IsValid => !string.IsNullOrWhiteSpace(Monitor) && Monitor.Length <= 256 && Region.IsValid && (AreaId is null || AreaId.Length is > 0 and <= 64);
+}
+public sealed class ArrangementArea
+{
+    public string Id { get; set; } = Guid.NewGuid().ToString("N");
+    public string Monitor { get; set; } = "";
+    public Region Region { get; set; }
+    public int Columns { get; set; } = 2;
+    public int Rows { get; set; } = 2;
+    public bool IsValid => !string.IsNullOrWhiteSpace(Id) && Id.Length <= 64 && !string.IsNullOrWhiteSpace(Monitor) && Monitor.Length <= 256 && Region.IsValid && Columns is >= 1 and <= 12 && Rows is >= 1 and <= 12;
+    public override string ToString() => $"Subgrid {Columns} × {Rows} ({Region.Left:P0}, {Region.Top:P0})";
+}
+public sealed record ArrangementItem(string Id, double AspectRatio, int MinimumWidth, int MinimumHeight,
+    ArrangementRole Role = ArrangementRole.Normal, double Weight = 1, bool Main = false, Region? Fixed = null);
 public sealed record ArrangementSlot(string Id, PixelRect Bounds);
 public sealed record ArrangementPlan(IReadOnlyList<ArrangementSlot> Slots, string? Error)
 {

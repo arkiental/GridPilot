@@ -105,15 +105,16 @@ public partial class App : Application
         next.Show();
         Diagnostics.Write("Focus panel shown.");
     }
-    private void ShowAutoArrange(DisplayMonitor monitor)
+    private void ShowAutoArrange(DisplayMonitor monitor, IReadOnlyList<PreviewWindowEntry> capturedWindows)
     {
         var next = new AutoArrangeWindow(monitor, settings, proposed =>
         {
             // The sheet owns only arrangement preferences. Preserve any concurrent tray
             // setting changes instead of replacing them with its opening-time snapshot.
             var updated = settings.Clone(); updated.ArrangementPreferences = proposed.ArrangementPreferences;
+            updated.ArrangementAreas = proposed.ArrangementAreas; updated.ArrangementUiScale = proposed.ArrangementUiScale;
             return SaveSettings(updated);
-        }, (display, placements) => _ = ArrangeAsync(display, placements));
+        }, (display, placements) => _ = ArrangeAsync(display, placements), capturedWindows, lastTarget);
         arrangeWindow = next;
         hotkeys?.TryApply(Array.Empty<HotkeyAction>(), out _);
         next.Closed += (_, _) => { arrangeWindow = null; RestoreHotkeys(); };
@@ -169,10 +170,20 @@ public partial class App : Application
     }
     private void RestoreHotkeys()
     {
-        if (exiting || paused || hotkeys is null) return;
+        if (exiting || paused || hotkeys is null || arrangeWindow is not null) return;
         if (!hotkeys.TryApply(Actions(settings), out var error)) { paused = true; Notify(error!); UpdateTray(); }
     }
     private string? SaveSettings(AppSettings updated)
+    {
+        try { return SaveSettingsCore(updated); }
+        finally
+        {
+            // Save-only keeps the arrangement editor alive. Registration validation and
+            // rollback may install shortcuts; suspend them again on every exit path.
+            if (arrangeWindow is not null) hotkeys?.TryApply(Array.Empty<HotkeyAction>(), out _);
+        }
+    }
+    private string? SaveSettingsCore(AppSettings updated)
     {
         if (updated.Validate() is { } invalid) return invalid;
         if (!hotkeys!.TryApply(Actions(updated), out var error)) return error;
@@ -195,7 +206,7 @@ public partial class App : Application
     {
         panel?.Dismiss(true);
         if (!paused) { hotkeys!.TryApply(Array.Empty<HotkeyAction>(), out _); paused = manuallyPaused = true; }
-        else if (hotkeys!.TryApply(Actions(settings), out var error)) paused = manuallyPaused = false;
+        else if (hotkeys!.TryApply(arrangeWindow is null ? Actions(settings) : Array.Empty<HotkeyAction>(), out var error)) paused = manuallyPaused = false;
         else Notify(error!);
         UpdateTray();
     }

@@ -1,6 +1,6 @@
 # Automatic arrangement: give space according to the job
 
-Design proposal, 24 September 2026. Responds to [the owner's PR #25 feedback](https://github.com/arkiental/GridPilot/pull/25#issuecomment-5814185807). **This document proposes a replacement default; it does not describe implemented behavior.** The existing placement, rollback and Undo code remains unchanged. [Current implementation documentation](AUTO_ARRANGE.md).
+Design proposal, 24 September 2026. Responds to [the owner's PR #25 feedback](https://github.com/arkiental/GridPilot/pull/25#issuecomment-5814185807). **Historical proposal.** The Smart default and later owner-requested saved places/subgrids are now under implementation on this branch. This document records the research and alternatives; the current behavior and limitations are in the usage documentation. The existing verified placement, rollback and Undo foundation remains. [Current implementation documentation](AUTO_ARRANGE.md).
 
 ## Recommendation
 

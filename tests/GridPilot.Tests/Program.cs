@@ -44,7 +44,7 @@ internal static partial class Program
                 application.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Parse(resources.ToString()));
                 application.Startup += async (_, _) =>
                 {
-                    try { if (args.Contains("--sidebar")) await SidebarNativeTests(); else await NativeTests(); } catch (Exception ex) { failure = ex; }
+                    try { if (args.Contains("--arrangement")) await ArrangementNativeTests(); else if (args.Contains("--sidebar")) await SidebarNativeTests(); else await NativeTests(); } catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
                 };
                 application.Run();

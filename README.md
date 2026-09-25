@@ -1,6 +1,6 @@
 # GridPilot
 
-**Auto arrange:** choose a display in Focus and click **Auto arrange** to preview a layout for its windows, exclude individual windows, and remember per-app aspect/grid-shape and minimum-size rules. Apply explicitly; Undo restores the entire group. See [usage and constraints](docs/AUTO_ARRANGE.md).
+**Auto arrange:** preview a Smart layout with a larger main workspace and smaller supporting apps, or choose Equal tiles. Draw saved app places and zoom into local subgrids for small windows; empty subgrid cells stay reserved. Make main and space controls adjust the preview, while advanced rules retain exact ratios and minimums. An independent interface-size control includes automatic enlargement for 8K at 100%. Apply explicitly; Undo restores the group. See [usage and constraints](docs/AUTO_ARRANGE.md).
 
 A native Windows 11 window-placement utility, inspired by Divvy's grid interaction with an independent interface. Built with C#, WPF, and Win32 on .NET 10.
 

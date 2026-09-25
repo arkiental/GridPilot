@@ -1,25 +1,59 @@
 # Automatic arrangement
 
-Open Focus, select a display, then choose **Auto arrange** next to its grid control. Only visible, resizable application windows belonging to that display are offered. Minimized, other-desktop, hung, modal-blocked, and inaccessible elevated windows are excluded. Excluding a window leaves it in place; it is not minimized, hidden, or treated as a reserved obstacle.
+Open Focus, select a display, then choose **Auto arrange**. The sheet uses the eligible window catalog captured before Focus opened. HWND + PID identifies each move; app identity supplies only remembered preferences. No window moves until **Arrange windows**. Up to 32 visible, resizable windows on the selected display can participate. Minimized, other-desktop, hung, modal-blocked, and inaccessible elevated windows are omitted.
 
-The numbered preview updates as you include windows or expand **App rules**. No window moves until **Arrange windows**. Escape cancels. Up to 32 windows can participate.
+## Smart workflow
 
-- Blank aspect: fill its assigned tile. With all flexible windows the tiles cover the work area except the configured gaps.
-- Aspect: use `16:9`, `1:1`, or a decimal. This locks the *visible window frame* ratio, not an application's internal canvas or document.
-- Grid shape: `3x2` means the physical aspect of three columns by two rows of the current display grid. It overrides the aspect field. It is a proportional shape preference, not a fixed cell address or guaranteed cell span.
-- Minimum: physical visible-frame pixels, such as `1280x720`. Default `320x240`. Applications may impose a larger minimum of their own.
-- Remember: saves rules by executable path or packaged-app identity, never by changing window title. Windows of the same app need matching remembered rules. Individual inclusion stays per-window for this run; persistent app exclusion applies only when all its windows are excluded. If identity is inaccessible, rules remain session-only.
+**Smart** starts with a larger main workspace and smaller supporting windows. Blender and Substance Painter are workspace candidates; Explorer is a utility and Spotify a companion. Unknown apps remain normal. A workspace candidate wins over the pre-panel target; without one, the captured non-utility target or first eligible normal window wins. These are editable assumptions, not knowledge of your document or task. **Make main** overrides the guess for this arrangement. **− space / + space** adjusts a soft weight. **Equal tiles** ignores the role hierarchy.
 
-Locked ratios cannot always fill a rectangular monitor exactly; unused space is shown rather than stretching those windows. The bounded shelf search evaluates row counts in catalog and constraint order, scores usable area and shape, and refuses layouts that violate explicit minimums. It is a predictable heuristic, not an exhaustive packing solver: “no layout found” does not prove mathematical impossibility. Exclude some windows, relax rules, or use a larger display. It does not distribute one batch across several displays; invoke it once per display.
+The bounded planner compares unequal split layouts and an alternate shelf layout. A four-app Blender/Chrome/Explorer/Spotify setup initially targets roughly 60/20/12/8 percent when constraints permit. Minimums, reserved places, locked ratios and shape preferences can change the result. Role preferred sizes are logical sizing hints, not measured native app limits. The planner never silently lowers a minimum, stretches a locked frame or grows a fixed place. Search failure means no suitable candidate was found, not a proof that all possible layouts are impossible.
 
-Application minimums are validated during application, not guessed from frame sizes. A refusing/stale target or display-topology change stops the batch. Previously touched windows are restored with the same verified window-placement restoration used by ordinary Undo. If restoration fails, remaining snapshots stay available to retry Undo. Successful batches replace the previous Undo entry with one group; closed windows are skipped during Undo.
+Select a preview tile to mark it red. The app list shows the corresponding number, role and space weight. Exclusion leaves a window where it is; automatic windows can cover it. An excluded window with a saved place retains its reservation. Ratios and reserved fragments can leave visible unused space.
 
-## Research and decisions
+## Draw a permanent app place
 
-1. [Microsoft FancyZones](https://learn.microsoft.com/en-us/windows/powertoys/fancyzones) demonstrates the value of monitor-specific layouts, gaps and exclusions. Here the plan is generated from the current selection instead of choosing permanent zones. Scope stays one display so scale and placement remain explicit.
-2. [WM_GETMINMAXINFO](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-getminmaxinfo) allows applications to override tracking limits. A preferred rectangle is therefore not evidence that an app accepted it. GridPilot compares actual visible bounds after settling and rejects an incompatible batch instead of enlarging a tile into its neighbor.
-3. [SetWindowPos](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos) documents asynchronous positioning and flags that preserve activation/Z order. Batch application keeps those flags and verifies each result. Sequential application makes failure attribution and rollback clear; it does not promise visually simultaneous movement.
-4. [High DPI desktop development](https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows) explains that coordinates depend on DPI-awareness context. Plans remain physical pixels, gaps convert using destination DPI, and existing per-monitor-aware native scopes perform placement.
-5. Exact aspect, minimum dimensions, arbitrary window counts and complete rectangular coverage can conflict. The design therefore makes minimums and ratio preservation hard constraints, coverage a score, and remaining space visible. It never silently relaxes a user's rule.
+1. Choose **Draw place** beside the intended app window.
+2. Drag over the display grid, or enter **column, row, width, height** in cells (one-based) and choose **Select cells**. The editor reports the resulting physical frame dimensions.
+3. Choose **Use this place**, inspect the arrangement, and apply with **Remember** enabled.
 
-Remaining hardware checks: mixed-DPI monitor changes during a batch, RDP, protected/packaged applications and real production apps with dynamic minimum sizes. Hosted CI cannot certify those behaviors.
+The place is saved by executable path or packaged-app identity and display device name. Its rectangle is relative to that display's work area, so it follows a resolution/work-area change; its exact physical size is recomputed and shown, including destination-DPI gaps. User minimums remain physical pixels. A changed work area can make a remembered place conflict with a minimum or ratio: the sheet reports that conflict and requires a redraw or rule change, rather than distorting it.
+
+“Permanent” means remembered across GridPilot/app restarts and used the next time you choose Arrange. It does **not** monitor app launches, move windows continuously, or prevent you moving them manually. Missing apps' saved places remain reserved. **Clear place** releases the app's saved place; it does not delete its parent subgrid. Identity-inaccessible apps can use a place for this session only.
+
+When several windows belong to the same saved app, choose **Use saved place** on the intended window. GridPilot does not guess by title or silently put every sibling in the same rectangle. Other siblings remain automatic. Only live HWND + PID identities are moved; those identities are never persisted.
+
+## Local subgrids
+
+In the drawing editor, select an outer region—such as the top-left cell of a 6 × 6 grid—choose the local column/row count, then **Subdivide selection**. The editor zooms into that area. Draw a child place for Spotify there, then draw another app's place by choosing the same area under **Zoom to**. This also supports a wide strip divided into narrow local slots without increasing the global grid density.
+
+The entire parent area is reserved from automatic packing, including empty cells or absent/excluded apps. **Saved places…** lists closed apps as well as live ones; it can clear an absent app slot or explicitly remove a parent together with all its child places. It also creates reserved subgrids without any app being open. Child boundaries map directly through the parent to the physical work area, with shared gap rounding once. Saved places cannot overlap; a child must remain inside its parent. The editor prevents overlapping parent regions. There are two removal paths: **Saved places… → Remove area + child places** explicitly clears a parent and every child assignment, including closed apps. Within the drawing editor, **Remove area** is deliberately limited: first clear other apps' child places, select the parent, then remove it and keep the area changes. Saving area changes keeps the editor changes in the sheet draft without assigning a window or committing an unfinished drawing. **Save rules only** persists the draft without moving anything, even with no eligible windows or no feasible arrangement. Current support is one level of local subgrids.
+
+## Large-display controls and advanced rules
+
+**Interface size** is independent of placement DPI and coordinates. Auto uses 200% UI sizing for work areas at least 6000 pixels wide at up to 125% display scale; other displays use 100%. Explicit 100/150/200/250% choices are available. The sheet is clamped to available screen space, has a scrollable app list, and the drawing editor zooms local areas to make tiny 8K cells usable. UI enlargement never changes the physical placement geometry.
+
+Expand **App rules** for:
+
+- **Aspect:** blank is flexible; `16:9`, `1:1`, or a decimal locks the visible frame, not the internal canvas.
+- **Grid shape:** `3x2` derives a physical ratio from the selected display's current outer grid; it overrides Aspect. It is a ratio constraint, distinct from a drawn cell address.
+- **Minimum frame:** physical pixels, default `320x240`. Apps can demand larger dimensions dynamically.
+- **Role:** Automatic uses the small executable catalog; Workspace, Normal, Utility and Companion override it.
+
+Remember saves rules, places, subgrids and UI size. Same-app siblings need matching ratio/minimum/role/space rules to save them. Make main is a per-preview choice. Persistent exclusion is set only when all windows of the app are excluded. Existing settings migrate with default automatic roles and no places while preserving old ratio/minimum locks. Cancel discards unsaved draft changes; an earlier explicit Save rules only remains saved. Remember off applies the draft only for the current operation unless you explicitly save it.
+
+## Placement safety and limitations
+
+Actual visible bounds are verified after each native move. A refusing/stale target or changed display topology stops the batch and rolls touched windows back using the existing verified restoration path. An app's native minimum can still reject a geometrically valid preview; there is no automatic retry with a different layout. Failed restoration snapshots remain available for Undo; successful batches create one grouped Undo. Closed windows are skipped during Undo.
+
+One display is arranged per operation. The native display device name is the current monitor key, not a portable physical-monitor serial number: reassigned device names after hardware reconnection require checking the preview. A saved slot reserves space even when its app is absent. The planner uses bounded candidate policies and may leave fragments unused. Real full Spotify windows are not assumed to accept Miniplayer dimensions; GridPilot does not switch app modes.
+
+Research informing the policy is recorded in [the design proposal](AUTO_ARRANGE_PROPOSAL.md), including primary sources for split layouts, logical size hints and hard native acceptance. Relevant Windows contracts: [WM_GETMINMAXINFO](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-getminmaxinfo), [SetWindowPos](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setwindowpos), and [DPI-awareness contexts](https://learn.microsoft.com/en-us/windows/win32/hidpi/high-dpi-desktop-application-development-on-windows). Remaining owner checks include actual Blender/Chrome/Spotify/Explorer content, full Spotify versus separately opened Miniplayer, 8K100% ergonomics, mixed-monitor topology changes, RDP and dynamic native minimums. Fixture/core results cannot certify those production-app workflows.
+
+
+## Reviewed fixture views
+
+These are owned WPF renders from the 7680 × 4320 test desktop at 200% Windows scaling. The named windows are disposable test fixtures, not Blender or Spotify. The renders show WPF content only and exclude native acrylic and titlebar composition. They are not evidence of actual 8K100% desktop ergonomics.
+
+![Arrangement sheet with Smart layout and saved-place controls](images/auto-arrange-sheet-fixture.png)
+
+![Zoomed local subgrid editor with numeric cells and visible actions](images/auto-arrange-subgrid-fixture.png)

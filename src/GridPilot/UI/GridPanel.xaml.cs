@@ -31,7 +31,7 @@ public partial class GridPanel : Window
     public event Action<WindowTarget>? TargetChanged;
     public event Action? SettingsRequested;
     public event Action? UndoRequested;
-    public event Action<DisplayMonitor>? AutoArrangeRequested;
+    internal event Action<DisplayMonitor, IReadOnlyList<PreviewWindowEntry>>? AutoArrangeRequested;
 
     public GridPanel(WindowTarget target, AppSettings settings, bool canUndo, Func<int, int, string?> saveGrid, Func<bool, string?>? saveSidebar = null)
     {
@@ -337,7 +337,7 @@ public partial class GridPanel : Window
     private void AutoArrangeClick(object sender, RoutedEventArgs e)
     {
         if (MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
-        Dismiss(false); AutoArrangeRequested?.Invoke(monitor);
+        Dismiss(false); AutoArrangeRequested?.Invoke(monitor, capturedWindows);
     }
     public void Dismiss(bool restoreFocus)
     {
