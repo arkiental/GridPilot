@@ -33,6 +33,7 @@ internal static partial class Program
     }
     private static async Task PlacementInteractionNativeTests()
     {
+        await PendingPlacementRecoveryTests();
         using (var delayed = StartFixture("--slow-batch-resize"))
         {
             try
@@ -132,5 +133,55 @@ internal static partial class Program
             focusPanel.Dismiss(false);
         }
         finally { if (!fixture.HasExited) { fixture.Kill(); await fixture.WaitForExitAsync(); } }
+    }
+    private static async Task PendingPlacementRecoveryTests()
+    {
+        foreach (bool beyondBound in new[] { false, true })
+        {
+            using var delayed = StartFixture(beyondBound ? "--very-slow-batch-resize" : "--slow-batch-resize");
+            using var blocker = StartFixture();
+            try
+            {
+                var hwnd = await WaitForFixture(delayed); var blockerHandle = await WaitForFixture(blocker); await Task.Delay(100);
+                var target = WindowService.Capture(hwnd, out _)!;
+                var monitor = MonitorService.ForWindow(hwnd, MonitorService.GetAll());
+                var original = WindowService.VisibleBounds(hwnd);
+                var destination = new PixelRect(original.Left, original.Top, original.Left + Math.Max(320, original.Width - 180), original.Top + Math.Max(240, original.Height - 100));
+                Native.SetWindowPos(blockerHandle, 0, monitor.Work.Left + 16, monitor.Work.Top + 16, 420, 300, 0x4014); await Task.Delay(100);
+                IReadOnlyList<PreviewWindowEntry> CaptureOwned() => PreviewWindows.Capture().Where(e => e.Target.ProcessId == delayed.Id || e.Target.ProcessId == blocker.Id).ToArray();
+                var guards = CaptureOwned().Select(e => (e.Target, e.Bounds)).ToArray();
+                var service = new WindowService(CaptureOwned);
+                var operation = service.ArrangeAsync(monitor, [(target, destination)], guards);
+                await Task.Delay(100);
+                Native.SetWindowPos(blockerHandle, 0, destination.Left, destination.Top, 420, 300, 0x4014);
+                await Task.Delay(250);
+                Assert(service.Busy && !operation.IsCompleted, "occupancy cancellation waits while the forward resize is still pending");
+                var result = await operation;
+                Assert(!result.Success, "late blocker cancels slow native placement");
+                if (beyondBound)
+                {
+                    Assert(service.CanUndo && result.Message!.Contains("could not be verified"), "timeout retains uncertain recovery instead of claiming unchanged bounds prove rollback");
+                    Assert(!(await service.PlaceAsync(target, monitor.Device, Region.Full, 8)).Success, "unverified queued request blocks new placements");
+                    var recovery = service.UndoAsync();
+                    await Task.Delay(100);
+                    Assert(service.CanUndo && service.Busy && !recovery.IsCompleted, "immediate Undo cannot consume uncertain snapshot while native request is pending");
+                    var recovered = await recovery;
+                    if (!recovered.Success)
+                    {
+                        Assert(service.CanUndo, "a bounded Undo that cannot prove responsiveness retains recovery");
+                        await Task.Delay(1200);
+                        recovered = await service.UndoAsync();
+                    }
+                    Assert(recovered.Success && !service.CanUndo, "Undo consumes recovery only after an observed native response and verified restoration: " + recovered.Message);
+                }
+                else Assert(!service.CanUndo, "quiesced slow request rolls back without retaining an unnecessary retry");
+                await Task.Delay(1200);
+                Assert(WindowService.VisibleBounds(hwnd).Near(original), "no queued forward resize escapes after failure/recovery was reported");
+            }
+            finally
+            {
+                foreach (var process in new[] { delayed, blocker }) if (!process.HasExited) { process.Kill(); await process.WaitForExitAsync(); }
+            }
+        }
     }
 }

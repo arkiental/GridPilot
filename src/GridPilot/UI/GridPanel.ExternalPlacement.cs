@@ -8,7 +8,6 @@ namespace GridPilot.UI;
 public partial class GridPanel
 {
     internal bool IsOperationPending => placementPending;
-    internal Region? PendingPlacementRegion { get; private set; }
 
     internal void ShowExternalDestination(string device)
     {

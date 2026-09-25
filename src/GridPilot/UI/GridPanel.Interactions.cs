@@ -7,6 +7,7 @@ namespace GridPilot.UI;
 public partial class GridPanel
 {
     private bool placementPending;
+    internal Region? PendingPlacementRegion { get; private set; }
     private int captureGeneration;
     private List<(WindowTarget Target, PixelRect Bounds)> pendingPlacements = [];
     private IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> originalGeometry = [];
@@ -21,6 +22,7 @@ public partial class GridPanel
 
     private void InitializeInteractions()
     {
+        Loaded += (_, _) => EmptySlotButton.Visibility = EmptySlotRequested is null ? Visibility.Collapsed : Visibility.Visible;
         foreach (var entry in capturedWindows)
         {
             var id = Windows.ApplicationIdentity.Read(entry.Target);
