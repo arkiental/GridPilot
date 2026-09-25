@@ -44,7 +44,7 @@ internal static partial class Program
                 application.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Parse(resources.ToString()));
                 application.Startup += async (_, _) =>
                 {
-                    try { if (args.Contains("--arrangement")) await ArrangementNativeTests(); else if (args.Contains("--sidebar")) await SidebarNativeTests(); else await NativeTests(); } catch (Exception ex) { failure = ex; }
+                    try { if (args.Contains("--workspace")) await PartialWorkspaceNativeTests(); else if (args.Contains("--arrangement")) await ArrangementNativeTests(); else if (args.Contains("--sidebar")) await SidebarNativeTests(); else { await NativeTests(); await PartialWorkspaceNativeTests(); } } catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
                 };
                 application.Run();
@@ -57,6 +57,7 @@ internal static partial class Program
     private static void CoreTests()
     {
         ArrangementTests();
+        PartialWorkspaceTests();
         var work = new PixelRect(-1920, -300, 0, 780);
         Assert(PlacementMath.Calculate(work, Region.Full, 8, 96) == new PixelRect(-1912, -292, -8, 772), "negative desktop origin");
         Assert(PlacementMath.Calculate(work, Region.Full, 8, 192) == new PixelRect(-1904, -284, -16, 764), "200% gap conversion");

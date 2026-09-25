@@ -32,6 +32,9 @@ public sealed class AppSettings
     public string Theme { get; set; } = "Dark";
     public bool SmokedGlass { get; set; } = true;
     public bool WindowSidebarOpen { get; set; } = true;
+    public bool CloseAfterPlacement { get; set; }
+    private PartialWorkspaceSettings partialWorkspace = new();
+    public PartialWorkspaceSettings PartialWorkspace { get => partialWorkspace; set => partialWorkspace = value ?? new(); }
     public List<ArrangementPreference> ArrangementPreferences { get; set; } = [];
     public List<ArrangementArea> ArrangementAreas { get; set; } = [];
     public double ArrangementUiScale { get; set; }
@@ -72,9 +75,11 @@ public sealed class AppSettings
         if (Activation is null) return "An activation shortcut is required.";
         if (Activation.Validate() is { } error) return error;
         if (Undo?.Validate() is { } undoError) return undoError;
+        if (PartialWorkspace.Validate() is { } workspaceError) return workspaceError;
         if (Presets is null || Presets.Count > 100) return "Keep at most 100 saved placements.";
         var shortcuts = new HashSet<Shortcut> { Activation };
         if (Undo is not null && !shortcuts.Add(Undo)) return "Undo and activation need different shortcuts.";
+        if (PartialWorkspace.Shortcut is { } fillShortcut && !shortcuts.Add(fillShortcut)) return "Fill empty slot needs a different shortcut from activation and Undo.";
         var ids = new HashSet<string>();
         foreach (var preset in Presets)
         {

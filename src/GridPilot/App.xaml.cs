@@ -62,12 +62,17 @@ public partial class App : Application
     {
         var actions = new List<HotkeyAction> { new(config.Activation, "Open grid", () => TogglePanel(false)) };
         if (config.Undo is { } undo) actions.Add(new(undo, "Undo placement", () => _ = UndoAsync()));
+        if (config.PartialWorkspace.Shortcut is { } fill) actions.Add(new(fill, "Fill empty slot", () =>
+        {
+            if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
+            var target = panel is { IsActive: true } ? panel.Target : WindowService.CaptureForeground(out _);
+            if (target is null) Notify("Activate a resizable application window first."); else _ = FillEmptySlotAsync(target);
+        }));
         foreach (var preset in config.Presets.Where(p => p.Shortcut is not null))
             actions.Add(new(preset.Shortcut!, preset.Name, () =>
             {
                 // Freeze the selected target when a preset is invoked from an already-open grid.
-                var target = panel is not null ? panel.Target : WindowService.CaptureForeground(out _);
-                panel?.Dismiss(false);
+                var target = panel is { IsActive: true } ? panel.Target : WindowService.CaptureForeground(out _);
                 if (target is null) Notify("Activate a resizable application window first."); else _ = ApplyPresetAsync(target, preset);
             }));
         return actions;
@@ -132,12 +137,24 @@ public partial class App : Application
         var monitor = MonitorService.Resolve(preset.Monitor, target.Handle, monitors);
         await PlaceAsync(target, monitor.Device, preset.Region);
     }
+    private async Task FillEmptySlotAsync(WindowTarget target, string? selectedDevice = null)
+    {
+        if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
+        if (windows.Busy) { Notify("A placement is already in progress."); return; }
+        var plan = PartialWorkspacePlacement.Capture(target, selectedDevice, settings);
+        if (!plan.Success) { Notify(plan.Slot.Error ?? "No vacant slot is available."); return; }
+        var result = await windows.ArrangeAsync(plan.Monitor!, [(target, plan.Slot.Bounds!.Value)]);
+        if (result.Success && settings.CloseAfterPlacement) panel?.Dismiss(false);
+        Notify(result.Success ? $"Placed in workspace slot {plan.Slot.SlotNumber} of {plan.Slot.Capacity}; {plan.Slot.VacantCount - 1} vacant slots remain. Undo is available." : result.Message ?? "The app does not fit this workspace slot.");
+        UpdateTray();
+    }
     private async Task PlaceAsync(WindowTarget target, string device, Region region)
     {
         var result = await windows.PlaceAsync(target, device, region, settings.Gap);
         if (result.Success)
         {
             lastRegion = region;
+            if (settings.CloseAfterPlacement) panel?.Dismiss(false);
             if (result.Message is { } adjustment) Notify(adjustment);
         }
         else Notify(result.Message ?? "The placement could not be applied.");
@@ -216,6 +233,11 @@ public partial class App : Application
         tray = new Forms.NotifyIcon { Icon = trayIcon, Visible = true, Text = "GridPilot" };
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Open grid", null, (_, _) => Dispatcher.BeginInvoke(() => TogglePanel(true)));
+        menu.Items.Add("Fill empty slot", null, (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            var target = panel is { IsActive: true } ? panel.Target : lastTarget;
+            if (target is null) Notify("Activate a resizable application window first."); else _ = FillEmptySlotAsync(target);
+        }));
         undoItem = new Forms.ToolStripMenuItem("Undo last placement", null, (_, _) => Dispatcher.BeginInvoke(() => _ = UndoAsync())); menu.Items.Add(undoItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Settings…", null, (_, _) => Dispatcher.BeginInvoke(ShowSettings));

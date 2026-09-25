@@ -15,6 +15,13 @@ public sealed class SettingsWindow : Window
     private readonly Func<AppSettings, string?> save;
     private readonly TextBox columns = new(), rows = new(), gap = new(), name = new();
     private readonly ShortcutBox activation = new(), undo = new(), presetShortcut = new();
+    private readonly ShortcutBox fillShortcut = new();
+    private readonly TextBox workspaceColumns = new(), workspaceRows = new();
+    private readonly ComboBox workspaceMonitor = new();
+    private readonly SelectionGrid workspaceGrid = new() { Height = 240, Columns = 8, Rows = 8, ApplyOnRelease = false };
+    private readonly TextBlock workspaceSummary = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 12) };
+    private readonly Canvas workspaceOccupancy = new() { Height = 220, Background = new SolidColorBrush(Color.FromRgb(23, 25, 29)), ClipToBounds = true };
+    private readonly CheckBox closeAfterPlacement = new() { Content = "Close placement panels after a successful placement", Margin = new Thickness(0, 10, 0, 4) };
     private readonly CheckBox startAtLogin = new() { Content = "Launch GridPilot when I sign in", Margin = new Thickness(0, 12, 0, 0) };
     private readonly CheckBox smokedGlass = new() { Content = "Smoked Glass panel", Margin = new Thickness(0, 0, 0, 4) };
     private readonly ComboBox theme = new(), destination = new();
@@ -59,6 +66,7 @@ public sealed class SettingsWindow : Window
         var tabs = new TabControl { BorderThickness = new Thickness(0), Background = Brushes.Transparent };
         tabs.Items.Add(new TabItem { Header = "  General  ", Content = GeneralPage() });
         tabs.Items.Add(new TabItem { Header = "  Saved placements  ", Content = PresetsPage() });
+        tabs.Items.Add(new TabItem { Header = "  Partial workspace  ", Content = WorkspacePage() });
         root.Children.Add(tabs); Content = root;
         LoadGeneral(); ReloadPresets();
         Theme.Changed += SetTitleTheme;
@@ -109,9 +117,86 @@ public sealed class SettingsWindow : Window
         stack.Children.Add(smokedGlass);
         stack.Children.Add(Text("Subtle glass in dark mode. Turn off for opaque Matte Focus. Respects Windows transparency and power settings.", 11, "MutedBrush"));
         stack.Children.Add(startAtLogin);
+        stack.Children.Add(closeAfterPlacement);
         stack.Children.Add(Text("In the grid: arrows move · Shift + arrows extends · Enter applies · Escape cancels", 12, "MutedBrush"));
         stack.Children.Add(Text("The tray menu provides Undo, Pause shortcuts, Settings, and Quit. A missing saved display falls back to the window’s current display.", 12, "MutedBrush"));
         return new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    }
+
+    private FrameworkElement WorkspacePage()
+    {
+        var stack = new StackPanel { Margin = new Thickness(8, 22, 8, 0) };
+        stack.Children.Add(Text("Fill empty slot", 19, "TextBrush", FontWeights.SemiBold));
+        stack.Children.Add(Text("Place one selected app in the first vacant slot, left to right then top to bottom. Existing windows stay in place. Nothing moves until you invoke the action.", 12, "MutedBrush"));
+        var choices = new List<MonitorChoice> { new("current", "Selected window’s display") };
+        choices.AddRange(MonitorService.GetAll().Select(m => new MonitorChoice(m.Device, m.Label)));
+        if (!choices.Any(c => c.Value == draft.PartialWorkspace.Monitor)) choices.Add(new(draft.PartialWorkspace.Monitor, "Disconnected workspace display"));
+        workspaceMonitor.ItemsSource = choices;
+        workspaceMonitor.SelectedItem = choices.First(c => c.Value == draft.PartialWorkspace.Monitor);
+        workspaceMonitor.SelectionChanged += (_, _) => UpdateWorkspaceSummary();
+        stack.Children.Add(Field("Workspace display", workspaceMonitor, "A disconnected saved display stops placement; no fallback to another display."));
+        fillShortcut.Set(draft.PartialWorkspace.Shortcut);
+        stack.Children.Add(Field("Fill empty slot shortcut · optional", fillShortcut, "Applies to the active app; also available from the grid and tray. Backspace clears it."));
+        workspaceColumns.Text = draft.PartialWorkspace.Columns.ToString(CultureInfo.InvariantCulture);
+        workspaceRows.Text = draft.PartialWorkspace.Rows.ToString(CultureInfo.InvariantCulture);
+        var sizes = new UniformGrid { Columns = 2 };
+        sizes.Children.Add(Field("Slot columns · 1–12", workspaceColumns)); sizes.Children.Add(Field("Slot rows · 1–12", workspaceRows));
+        stack.Children.Add(sizes);
+        workspaceColumns.TextChanged += (_, _) => UpdateWorkspaceSummary(); workspaceRows.TextChanged += (_, _) => UpdateWorkspaceSummary();
+        stack.Children.Add(Text("Reserved workspace · drag on the display grid", 13, "TextBrush", FontWeights.SemiBold));
+        var regions = new WrapPanel { Margin = new Thickness(0, 5, 0, 10) };
+        foreach (var entry in new (string Label, Region Region)[] { ("Upper half", new(0, 0, 1, .5)), ("Lower half", new(0, .5, 1, 1)), ("Left half", new(0, 0, .5, 1)), ("Full display", Region.Full) })
+            regions.Children.Add(Button(entry.Label, (_, _) => { workspaceGrid.Selection = entry.Region; UpdateWorkspaceSummary(); }));
+        stack.Children.Add(regions); workspaceGrid.Selection = draft.PartialWorkspace.Region;
+        workspaceGrid.SelectionChanged += _ => UpdateWorkspaceSummary();
+        stack.Children.Add(workspaceGrid); stack.Children.Add(workspaceSummary);
+        stack.Children.Add(Text("Live occupancy preview · orange is vacant, gray is occupied", 13, "TextBrush", FontWeights.SemiBold));
+        stack.Children.Add(workspaceOccupancy);
+        stack.Children.Add(Button("Refresh occupancy", (_, _) => UpdateWorkspaceSummary()));
+        workspaceOccupancy.SizeChanged += (_, _) => UpdateWorkspaceSummary();
+        stack.Children.Add(Text("Default: upper half, 4 columns × 2 rows. On an 8K display at 100% this gives about 1908 × 1068 px slots before taskbar deductions. Use fewer rows or columns for apps that need more space. The rest of the display is left alone, not cleared.", 12, "MutedBrush"));
+        stack.Children.Add(Text("All visible app frames count as occupied, including fixed-size and administrator windows. Minimized windows do not. App minimum-size refusal restores the target; slots never expand over neighbors. Gap is shared with the General grid setting.", 12, "MutedBrush"));
+        UpdateWorkspaceSummary();
+        return new ScrollViewer { Content = stack, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+    }
+
+    private void UpdateWorkspaceSummary()
+    {
+        workspaceOccupancy.Children.Clear();
+        if (!int.TryParse(workspaceColumns.Text, out int c) || c is < 1 or > 12 || !int.TryParse(workspaceRows.Text, out int r) || r is < 1 or > 12 || workspaceGrid.Selection is not { } region)
+        { workspaceSummary.Text = "Choose a workspace and 1–12 rows and columns."; return; }
+        var displays = MonitorService.GetAll();
+        var choice = (workspaceMonitor.SelectedItem as MonitorChoice)?.Value ?? "current";
+        var display = choice == "current" ? displays.FirstOrDefault(m => m.Primary) ?? displays.FirstOrDefault() : displays.FirstOrDefault(m => m.Device == choice);
+        if (display is null) { workspaceSummary.Text = $"{c * r} slots · connect the saved display to see physical sizes."; return; }
+        try
+        {
+            var previewGap = double.TryParse(gap.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out var g) && g is >= 0 and <= 64 ? g : draft.Gap;
+            var slots = PartialWorkspace.Slots(display.Work, display.Dpi, previewGap, new() { Region = region, Columns = c, Rows = r });
+            var occupied = PreviewWindows.Capture();
+            double scale = Math.Min(Math.Max(1, workspaceOccupancy.ActualWidth) / display.Work.Width, workspaceOccupancy.Height / display.Work.Height);
+            workspaceOccupancy.Children.Add(new Border { Width = display.Work.Width * scale, Height = display.Work.Height * scale, BorderThickness = new Thickness(1), BorderBrush = Brushes.DimGray, ToolTip = "Display work area; blank area is outside the reserved workspace." });
+            int vacantCount = 0;
+            foreach (var slot in slots)
+            {
+                var blockers = occupied.Where(e => PartialWorkspace.Overlaps(slot, e.Bounds)).ToArray();
+                bool vacant = blockers.Length == 0;
+                if (vacant) vacantCount++;
+                var tile = new Border
+                {
+                    Width = Math.Max(1, slot.Width * scale), Height = Math.Max(1, slot.Height * scale),
+                    BorderBrush = vacant ? Brushes.DarkOrange : Brushes.Gray, BorderThickness = new Thickness(1),
+                    Background = vacant ? new SolidColorBrush(Color.FromRgb(92, 57, 29)) : new SolidColorBrush(Color.FromRgb(52, 57, 65)),
+                    ToolTip = vacant ? "Vacant slot" : string.Join("\n", blockers.Select(e => e.Target.Title)),
+                    Child = new TextBlock { Text = vacant ? "Vacant" : "Occupied", Foreground = Brushes.White, FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(3) }
+                };
+                Canvas.SetLeft(tile, (slot.Left - display.Work.Left) * scale); Canvas.SetTop(tile, (slot.Top - display.Work.Top) * scale);
+                workspaceOccupancy.Children.Add(tile);
+            }
+            workspaceSummary.Text = $"Capacity: {slots.Count} slots · approximately {slots[0].Width} × {slots[0].Height} physical px each on {display.Label}." + (choice == "current" ? " Preview uses the primary display; placement uses the target’s display." : "");
+            workspaceSummary.Text += $" {vacantCount} currently vacant. Hover occupied slots for window names; the target's current frame will be ignored when filling.";
+        }
+        catch (ArgumentException ex) { workspaceSummary.Text = ex.Message; }
     }
 
     private FrameworkElement PresetsPage()
@@ -156,6 +241,7 @@ public sealed class SettingsWindow : Window
         columns.Text = draft.Columns.ToString(CultureInfo.InvariantCulture); rows.Text = draft.Rows.ToString(CultureInfo.InvariantCulture);
         gap.Text = draft.Gap.ToString(CultureInfo.CurrentCulture); activation.Set(draft.Activation); undo.Set(draft.Undo);
         smokedGlass.IsChecked = draft.SmokedGlass; theme.SelectedItem = draft.Theme; startAtLogin.IsChecked = draft.StartAtLogin;
+        closeAfterPlacement.IsChecked = draft.CloseAfterPlacement;
     }
     private void ReloadPresets()
     {
@@ -185,10 +271,14 @@ public sealed class SettingsWindow : Window
     private void UpdateSummary(Region region) => editorSummary.Text = $"Width {(region.Right - region.Left):P0} · height {(region.Bottom - region.Top):P0} · left {region.Left:P0} · top {region.Top:P0}";
     private void SaveClick(object sender, RoutedEventArgs e)
     {
-        if ((activation.CaptureError ?? undo.CaptureError ?? presetShortcut.CaptureError) is { } captureError) { error.Text = captureError; return; }
+        if ((activation.CaptureError ?? undo.CaptureError ?? presetShortcut.CaptureError ?? fillShortcut.CaptureError) is { } captureError) { error.Text = captureError; return; }
         if (!int.TryParse(columns.Text, out int c) || !int.TryParse(rows.Text, out int r)) { error.Text = "Enter whole numbers for rows and columns."; return; }
         if (!double.TryParse(gap.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double g)) { error.Text = "Enter a number for the gap."; return; }
         if (activation.Value is null) { error.Text = "Choose a shortcut to open the grid."; return; }
+        if (!int.TryParse(workspaceColumns.Text, out int wc) || !int.TryParse(workspaceRows.Text, out int wr) || workspaceGrid.Selection is not { } workspaceRegion)
+        { error.Text = "Choose a workspace rectangle and whole numbers for slot rows and columns."; return; }
+        draft.PartialWorkspace = new() { Region = workspaceRegion, Columns = wc, Rows = wr, Monitor = (workspaceMonitor.SelectedItem as MonitorChoice)?.Value ?? "current", Shortcut = fillShortcut.Value };
+        draft.CloseAfterPlacement = closeAfterPlacement.IsChecked == true;
         draft.Columns = c; draft.Rows = r; draft.Gap = g; draft.Activation = activation.Value; draft.Undo = undo.Value;
         draft.SmokedGlass = smokedGlass.IsChecked == true; draft.Theme = theme.SelectedItem as string ?? "System"; draft.StartAtLogin = startAtLogin.IsChecked == true;
         var message = draft.Validate() ?? save(draft);

@@ -42,6 +42,8 @@ Clicking one cell places the window there. If the app requires a larger minimum 
 
 ## Preferences and placements
 
+**Fill empty slot** is a separate, deliberate placement mode. Configure **Settings → Partial workspace** to reserve an area, choose slot rows/columns and assign an optional global shortcut. The default upper-half 4 × 2 workspace leaves the lower half alone. The settings diagram shows current vacant/occupied slots; hover occupied slots for window names. The shortcut places the active app in the first vacant fitting slot without moving other apps. The tray provides the same action. See [partial workspace details](docs/PARTIAL_WORKSPACE.md).
+
 - Grid: independently configurable **1–12 columns and rows**, default **6 × 6**.
 - Gap: **0–64 logical pixels**, default **8**. Adjacent placements share one gap; the same gap appears at outer edges. Gaps scale with the destination display.
 - Twelve built-in proportional placements: halves, quarters, thirds, and fill available space.
