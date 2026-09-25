@@ -383,28 +383,55 @@ public sealed class WindowService
         return (false, occupancyFailure);
     }
 
+    internal static IReadOnlyList<PixelRect> RecoveryProbes(PixelRect original, PixelRect work, PixelRect current)
+    {
+        if (!original.IsValid || !work.IsValid) return [];
+        PixelRect[] translations = [
+            original with { Left = original.Left + 2, Right = original.Right + 2 },
+            original with { Left = original.Left - 2, Right = original.Right - 2 },
+            original with { Top = original.Top + 2, Bottom = original.Bottom + 2 },
+            original with { Top = original.Top - 2, Bottom = original.Bottom - 2 }];
+        PixelRect[] growth = [original with { Right = original.Right + 2 }, original with { Bottom = original.Bottom + 2 },
+            original with { Left = original.Left - 2 }, original with { Top = original.Top - 2 }];
+        bool OnScreen(PixelRect r) => r.Left >= work.Left && r.Top >= work.Top && r.Right <= work.Right && r.Bottom <= work.Bottom;
+        var probes = new List<PixelRect>();
+        var translation = translations.FirstOrDefault(r => !r.Near(current) && OnScreen(r));
+        var larger = growth.FirstOrDefault(r => !r.Near(current) && OnScreen(r));
+        if (translation.IsValid) probes.Add(translation);
+        if (larger.IsValid) probes.Add(larger);
+        // A full-work-area frame has no slack. A maximum two-pixel temporary excursion
+        // proves responsiveness without violating a minimum; verified restoration follows.
+        if (probes.Count == 0)
+        {
+            foreach (var candidate in new[] { growth.FirstOrDefault(r => !r.Near(current)), translations.FirstOrDefault(r => !r.Near(current)) })
+                if (candidate.IsValid) probes.Add(candidate);
+        }
+        return probes;
+    }
+
     private async Task<bool> RestoreBatchSnapshotAsync(Snapshot snapshot, bool retryUncertain = false)
     {
         if (!IsSameWindow(snapshot.Target)) { uncertainRequests.Remove(snapshot); return true; }
         if (retryUncertain && uncertainRequests.Contains(snapshot))
         {
-            // Prove that this thread has consumed a fresh resize before accepting matching
-            // original bounds. The probe only shrinks within the original visible frame;
-            // a refusing/hung app leaves recovery available and new placements blocked.
+            // Prove responsiveness without requesting a smaller frame: the original may
+            // already be at its enforced minimum. Prefer an on-screen translation/growth.
             var currentMonitor = MonitorService.ForWindow(snapshot.Target.Handle, MonitorService.GetAll());
-            var original = snapshot.Visible;
-            var probe = new PixelRect(Math.Max(original.Left, currentMonitor.Work.Left) + 2, Math.Max(original.Top, currentMonitor.Work.Top) + 2,
-                Math.Min(original.Right, currentMonitor.Work.Right) - 2, Math.Min(original.Bottom, currentMonitor.Work.Bottom) - 2);
-            if (VisibleBounds(snapshot.Target.Handle).Near(probe)) probe = probe with { Left = probe.Left + 2, Top = probe.Top + 2 };
-            if (!probe.IsValid) return false;
+            var probes = RecoveryProbes(snapshot.Visible, currentMonitor.Work, VisibleBounds(snapshot.Target.Handle));
+            if (probes.Count == 0) return false;
             if (Native.IsZoomed(snapshot.Target.Handle))
             {
                 Native.ShowWindowAsync(snapshot.Target.Handle, 9);
                 for (int retry = 0; retry < 80 && IsSameWindow(snapshot.Target) && Native.IsZoomed(snapshot.Target.Handle); retry++) await Task.Delay(25);
                 if (!IsSameWindow(snapshot.Target) || Native.IsZoomed(snapshot.Target.Handle)) return false;
             }
-            var response = await SettleExactAsync(snapshot.Target, probe, () => { });
-            if (!response.Accepted) return false;
+            bool acknowledged = false;
+            foreach (var probe in probes)
+            {
+                var response = await SettleExactAsync(snapshot.Target, probe, () => { });
+                if (response.Accepted) { acknowledged = true; break; }
+            }
+            if (!acknowledged) return false;
             uncertainRequests.Remove(snapshot);
         }
         bool restored = false;
