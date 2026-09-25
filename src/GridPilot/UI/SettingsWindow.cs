@@ -16,6 +16,7 @@ public sealed class SettingsWindow : Window
     private readonly TextBox columns = new(), rows = new(), gap = new(), name = new();
     private readonly ShortcutBox activation = new(), undo = new(), presetShortcut = new();
     private readonly CheckBox startAtLogin = new() { Content = "Launch GridPilot when I sign in", Margin = new Thickness(0, 12, 0, 0) };
+    private readonly CheckBox smokedGlass = new() { Content = "Smoked Glass panel", Margin = new Thickness(0, 0, 0, 4) };
     private readonly ComboBox theme = new(), destination = new();
     private readonly ListBox presets = new() { MinWidth = 210, DisplayMemberPath = "Name" };
     private readonly SelectionGrid editorGrid = new() { Height = 205, ApplyOnRelease = false };
@@ -105,6 +106,8 @@ public sealed class SettingsWindow : Window
         stack.Children.Add(Field("Undo last placement · optional", undo, "Backspace or Delete clears a shortcut. Shortcuts pause while these settings have focus."));
         theme.ItemsSource = new[] { "System", "Light", "Dark" };
         stack.Children.Add(Field("Appearance", theme));
+        stack.Children.Add(smokedGlass);
+        stack.Children.Add(Text("Subtle glass in dark mode. Turn off for opaque Matte Focus. Respects Windows transparency and power settings.", 11, "MutedBrush"));
         stack.Children.Add(startAtLogin);
         stack.Children.Add(Text("In the grid: arrows move · Shift + arrows extends · Enter applies · Escape cancels", 12, "MutedBrush"));
         stack.Children.Add(Text("The tray menu provides Undo, Pause shortcuts, Settings, and Quit. A missing saved display falls back to the window’s current display.", 12, "MutedBrush"));
@@ -152,7 +155,7 @@ public sealed class SettingsWindow : Window
     {
         columns.Text = draft.Columns.ToString(CultureInfo.InvariantCulture); rows.Text = draft.Rows.ToString(CultureInfo.InvariantCulture);
         gap.Text = draft.Gap.ToString(CultureInfo.CurrentCulture); activation.Set(draft.Activation); undo.Set(draft.Undo);
-        theme.SelectedItem = draft.Theme; startAtLogin.IsChecked = draft.StartAtLogin;
+        smokedGlass.IsChecked = draft.SmokedGlass; theme.SelectedItem = draft.Theme; startAtLogin.IsChecked = draft.StartAtLogin;
     }
     private void ReloadPresets()
     {
@@ -187,7 +190,7 @@ public sealed class SettingsWindow : Window
         if (!double.TryParse(gap.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double g)) { error.Text = "Enter a number for the gap."; return; }
         if (activation.Value is null) { error.Text = "Choose a shortcut to open the grid."; return; }
         draft.Columns = c; draft.Rows = r; draft.Gap = g; draft.Activation = activation.Value; draft.Undo = undo.Value;
-        draft.Theme = theme.SelectedItem as string ?? "System"; draft.StartAtLogin = startAtLogin.IsChecked == true;
+        draft.SmokedGlass = smokedGlass.IsChecked == true; draft.Theme = theme.SelectedItem as string ?? "System"; draft.StartAtLogin = startAtLogin.IsChecked == true;
         var message = draft.Validate() ?? save(draft);
         if (message is not null) { error.Text = message; return; }
         Close();
