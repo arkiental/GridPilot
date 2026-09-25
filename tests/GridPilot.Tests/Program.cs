@@ -660,7 +660,7 @@ internal static partial class Program
                 return 0;
             });
         };
-        if (args.Contains("--delayed-resize") || args.Contains("--slow-batch-resize")) window.Loaded += (_, _) =>
+        if (args.Contains("--delayed-resize") || args.Contains("--slow-batch-resize") || args.Contains("--very-slow-batch-resize")) window.Loaded += (_, _) =>
         {
             var handle = new WindowInteropHelper(window).Handle;
             Native.GetWindowRect(handle, out var original);
@@ -671,7 +671,7 @@ internal static partial class Program
                     System.Runtime.InteropServices.Marshal.ReadInt32(lParam, IntPtr.Size * 2 + 8) < original.Pixels.Width - 50)
                 {
                     armed = false;
-                    Thread.Sleep(args.Contains("--slow-batch-resize") ? 1000 : 375); // Emulate a busy but responsive application's first resize handler.
+                    Thread.Sleep(args.Contains("--very-slow-batch-resize") ? 6000 : args.Contains("--slow-batch-resize") ? 1000 : 375); // Emulate a busy but responsive application's first resize handler.
                     window.Dispatcher.BeginInvoke(() => window.Title = "GridPilot test window - Delay exercised");
                 }
                 return 0;

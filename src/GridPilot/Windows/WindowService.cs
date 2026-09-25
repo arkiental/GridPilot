@@ -11,11 +11,16 @@ public sealed class WindowService
     private readonly Func<IReadOnlyList<PreviewWindowEntry>> captureCatalog;
     public WindowService() : this(PreviewWindows.Capture) { }
     internal WindowService(Func<IReadOnlyList<PreviewWindowEntry>> captureCatalog) => this.captureCatalog = captureCatalog;
-    private sealed record Snapshot(WindowTarget Target, Native.WindowPlacement Placement, PixelRect Outer, DisplayMonitor Monitor);
+    private sealed record Snapshot(WindowTarget Target, Native.WindowPlacement Placement, PixelRect Outer, PixelRect Visible, DisplayMonitor Monitor);
     private Snapshot? undo;
     private List<Snapshot>? batchUndo;
+    private readonly HashSet<Snapshot> uncertainRequests = [];
     public bool CanUndo => batchUndo?.Any(s => IsSameWindow(s.Target)) == true || undo is not null && IsSameWindow(undo.Target);
     public bool Busy { get; private set; }
+    private bool HasUncertainRequests
+    {
+        get { uncertainRequests.RemoveWhere(s => !IsSameWindow(s.Target)); return uncertainRequests.Count > 0; }
+    }
 
     public static bool IsSameWindow(WindowTarget target) => Native.IsWindow(target.Handle) &&
         Native.GetWindowThreadProcessId(target.Handle, out var process) != 0 && process == target.ProcessId;
@@ -71,7 +76,7 @@ public sealed class WindowService
         using var dpiContext = new Native.DpiScope();
         var placement = Native.WindowPlacement.Create();
         return Native.GetWindowPlacement(target.Handle, ref placement) && Native.GetWindowRect(target.Handle, out var rect)
-            ? new(target, placement, rect.Pixels, MonitorService.ForWindow(target.Handle, MonitorService.GetAll())) : null;
+            ? new(target, placement, rect.Pixels, VisibleBounds(target.Handle), MonitorService.ForWindow(target.Handle, MonitorService.GetAll())) : null;
     }
 
     private static bool SetVisible(nint window, PixelRect destination)
@@ -90,6 +95,7 @@ public sealed class WindowService
     public async Task<PlacementResult> PlaceAsync(WindowTarget target, string device, Region region, double gap)
     {
         if (Busy) return new(false, "A placement is already in progress.");
+        if (HasUncertainRequests) return new(false, "A previous native request is still unverified. Retry Undo before another placement.");
         Busy = true;
         Snapshot? before = null;
         try
@@ -231,7 +237,7 @@ public sealed class WindowService
             Busy = true;
             try
             {
-                var remaining = await RestoreGroupAsync(batchUndo, RestoreBatchSnapshotAsync);
+                var remaining = await RestoreGroupAsync(batchUndo, snapshot => RestoreBatchSnapshotAsync(snapshot, true));
                 batchUndo = remaining.Count == 0 ? null : remaining;
                 return new(remaining.Count == 0, remaining.Count == 0 ? null : "Some windows could not be restored. Retry Undo.");
             }
@@ -252,6 +258,7 @@ public sealed class WindowService
         IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>? expectedOriginals = null)
     {
         if (Busy) return new(false, "A placement is already in progress.");
+        if (HasUncertainRequests) return new(false, "A previous native request is still unverified. Retry Undo before another placement.");
         if (placements.Count is < 1 or > 32 || placements.Select(p => (p.Target.Handle, p.Target.ProcessId)).Distinct().Count() != placements.Count)
             return new(false, "Select 1–32 distinct windows.");
         Busy = true;
@@ -313,14 +320,17 @@ public sealed class WindowService
                 if (!IsSameWindow(p.Target) || Capture(p.Target.Handle, out _) is null) throw new InvalidOperationException("A selected window became unavailable.");
                 CheckOriginals(true); CheckOccupancy();
                 changed.Add(snapshots[i]);
+                uncertainRequests.Add(snapshots[i]);
                 if (Native.IsZoomed(p.Target.Handle))
                 {
                     Native.ShowWindowAsync(p.Target.Handle, 9);
                     for (int retry = 0; retry < 80 && IsSameWindow(p.Target) && Native.IsZoomed(p.Target.Handle); retry++) await Task.Delay(25);
                     if (!IsSameWindow(p.Target) || Native.IsZoomed(p.Target.Handle)) throw new InvalidOperationException($"{p.Target.Title} did not finish restoring from maximized mode.");
                 }
-                bool accepted = await SettleExactAsync(p.Target, p.Bounds, CheckOccupancy);
-                if (!accepted)
+                var response = await SettleExactAsync(p.Target, p.Bounds, CheckOccupancy);
+                if (response.Accepted) uncertainRequests.Remove(snapshots[i]);
+                if (response.OccupancyFailure is { } conflict) throw conflict;
+                if (!response.Accepted)
                 {
                     string observed = IsSameWindow(p.Target) ? VisibleBounds(p.Target.Handle).ToString() : "closed";
                     Diagnostics.Write($"Batch refusal HWND={p.Target.Handle} PID={p.Target.ProcessId} requested={p.Bounds} observed={observed}");
@@ -336,7 +346,7 @@ public sealed class WindowService
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException)
         {
-            var remaining = await RestoreGroupAsync(changed.AsEnumerable().Reverse(), RestoreBatchSnapshotAsync);
+            var remaining = await RestoreGroupAsync(changed.AsEnumerable().Reverse(), snapshot => RestoreBatchSnapshotAsync(snapshot));
             if (remaining.Count > 0) { batchUndo = remaining; undo = null; }
             return new(false, ex.Message + (remaining.Count > 0 ? " Some restorations could not be verified; retry Undo." : " Previous placements restored."));
         }
@@ -345,26 +355,66 @@ public sealed class WindowService
 
     // Send once, then observe convergence. Repeated async requests can outlive the old
     // 600ms retry loop and arrive after rollback. One bounded correction handles DWM/DPI borders.
-    private static async Task<bool> SettleExactAsync(WindowTarget target, PixelRect bounds, Action checkOccupancy)
+    private static async Task<(bool Accepted, InvalidOperationException? OccupancyFailure)> SettleExactAsync(WindowTarget target, PixelRect bounds, Action checkOccupancy)
     {
+        InvalidOperationException? occupancyFailure = null;
         for (int correction = 0; correction < 2; correction++)
         {
-            if (!IsSameWindow(target) || !SetVisible(target.Handle, bounds)) return false;
+            if (!IsSameWindow(target)) return (false, occupancyFailure);
+            // Do not queue a no-op request which could still run after an unrelated rejection.
+            if (!VisibleBounds(target.Handle).Near(bounds) && !SetVisible(target.Handle, bounds)) return (false, occupancyFailure);
             int stable = 0;
             for (int poll = 0; poll < 80; poll++)
             {
                 await Task.Delay(25);
-                if (!IsSameWindow(target)) return false;
-                if (poll % 4 == 0) checkOccupancy();
-                if (VisibleBounds(target.Handle).Near(bounds)) { if (++stable >= 8) return true; }
+                if (!IsSameWindow(target)) return (false, occupancyFailure);
+                if (poll % 4 == 0 && occupancyFailure is null)
+                {
+                    try { checkOccupancy(); }
+                    catch (InvalidOperationException ex) { occupancyFailure = ex; }
+                }
+                // An occupancy rejection cannot interrupt observation of an outstanding
+                // async move: unchanged original bounds are not evidence of rollback.
+                if (VisibleBounds(target.Handle).Near(bounds)) { if (++stable >= 8) return (true, occupancyFailure); }
                 else stable = 0;
             }
+            if (occupancyFailure is not null) break; // Do not add more queued requests after cancellation.
         }
-        return false;
+        return (false, occupancyFailure);
     }
 
-    private static async Task<bool> RestoreBatchSnapshotAsync(Snapshot snapshot) =>
-        !IsSameWindow(snapshot.Target) || await RestoreAsync(snapshot);
+    private async Task<bool> RestoreBatchSnapshotAsync(Snapshot snapshot, bool retryUncertain = false)
+    {
+        if (!IsSameWindow(snapshot.Target)) { uncertainRequests.Remove(snapshot); return true; }
+        if (retryUncertain && uncertainRequests.Contains(snapshot))
+        {
+            // Prove that this thread has consumed a fresh resize before accepting matching
+            // original bounds. The probe only shrinks within the original visible frame;
+            // a refusing/hung app leaves recovery available and new placements blocked.
+            var currentMonitor = MonitorService.ForWindow(snapshot.Target.Handle, MonitorService.GetAll());
+            var original = snapshot.Visible;
+            var probe = new PixelRect(Math.Max(original.Left, currentMonitor.Work.Left) + 2, Math.Max(original.Top, currentMonitor.Work.Top) + 2,
+                Math.Min(original.Right, currentMonitor.Work.Right) - 2, Math.Min(original.Bottom, currentMonitor.Work.Bottom) - 2);
+            if (VisibleBounds(snapshot.Target.Handle).Near(probe)) probe = probe with { Left = probe.Left + 2, Top = probe.Top + 2 };
+            if (!probe.IsValid) return false;
+            if (Native.IsZoomed(snapshot.Target.Handle))
+            {
+                Native.ShowWindowAsync(snapshot.Target.Handle, 9);
+                for (int retry = 0; retry < 80 && IsSameWindow(snapshot.Target) && Native.IsZoomed(snapshot.Target.Handle); retry++) await Task.Delay(25);
+                if (!IsSameWindow(snapshot.Target) || Native.IsZoomed(snapshot.Target.Handle)) return false;
+            }
+            var response = await SettleExactAsync(snapshot.Target, probe, () => { });
+            if (!response.Accepted) return false;
+            uncertainRequests.Remove(snapshot);
+        }
+        bool restored = false;
+        try { restored = await RestoreAsync(snapshot); }
+        finally { if (!restored) uncertainRequests.Add(snapshot); }
+        // A bounded wait may expire while the native UI thread is still processing a
+        // forward request. Even a matching original frame cannot consume that recovery
+        // snapshot, including on an immediate Undo retry. Keep recovery explicitly uncertain.
+        return restored && !uncertainRequests.Contains(snapshot);
+    }
 
     internal static async Task<List<T>> RestoreGroupAsync<T>(IEnumerable<T> snapshots, Func<T, Task<bool>> restore)
     {
