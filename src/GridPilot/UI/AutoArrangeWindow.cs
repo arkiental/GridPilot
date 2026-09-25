@@ -1,15 +1,19 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
+using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
+using System.Windows.Threading;
 using GridPilot.Windows;
 
 namespace GridPilot.UI;
 
-// Visual thesis: the existing charcoal Focus surface with an orange numbered plan.
-// Content: preview, inclusion list, optional per-app rules, single Apply action.
-// Interaction: instant preview on inclusion/rule edits; explicit apply, Escape cancels.
-internal sealed class AutoArrangeWindow : Window
+// Visual thesis: the Focus charcoal/glass workspace, with real windows as the visual anchor.
+// Content: live plan, two-column window catalog, one selected-window inspector, explicit Accept.
+// Interaction: selection moves the red marker; reroll and drag swaps update only the proposal.
+internal sealed partial class AutoArrangeWindow : Window
 {
     private sealed record Row(PreviewWindowEntry Entry, string? AppId, CheckBox Include, TextBox Ratio, TextBox GridShape, TextBox Minimum, ComboBox Role, TextBlock Summary)
     {
@@ -17,138 +21,138 @@ internal sealed class AutoArrangeWindow : Window
         public ArrangementPlace? Place { get; set; }
         public List<Button> AutomaticControls { get; } = [];
         public Button? UseSaved { get; set; }
+        public StackPanel Inspector { get; } = new();
+        public Border? Card { get; set; }
+        public WindowThumbnail? Thumbnail { get; set; }
+        public Image Icon { get; } = new() { Width = 14, Height = 14, Margin = new(4, 0, 3, 0) };
     }
     private readonly List<Row> rows = [];
     private readonly AppSettings settings;
     private readonly DisplayMonitor monitor;
     private readonly Func<AppSettings, string?> save;
     private readonly Action<DisplayMonitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>> apply;
-    private readonly Canvas canvas = new() { Width = 620, Height = 340, ClipToBounds = true };
-    private readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 10) };
-    private readonly Button applyButton = new() { Content = "Arrange windows", Padding = new Thickness(18, 9, 18, 9) };
-    private readonly CheckBox remember = new() { Content = "Remember these rules for each app", IsChecked = true, Margin = new Thickness(0, 8, 0, 8) };
+    private readonly Func<DisplayMonitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>, Task<PlacementResult>>? applyAsync;
+    private readonly Func<Task<PlacementResult>>? undoAsync;
+    private readonly Button undoButton = new() { Content = "Undo", IsEnabled = false, Padding = new(12, 9, 12, 9), Margin = new(0, 0, 8, 0) };
+    private readonly Canvas canvas = new() { Width = 900, Height = 500, ClipToBounds = true };
+    private readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap, Margin = new(0, 7, 0, 7), FontSize = 12 };
+    private readonly Button applyButton = new() { Content = "Accept layout", Padding = new(18, 9, 18, 9) };
+    private readonly Button reroll = new() { Content = "Reroll", Padding = new(12, 6, 12, 6), Margin = new(8, 4, 0, 4) };
+    private readonly CheckBox remember = new() { Content = "Remember app rules", IsChecked = true, Margin = new(0, 8, 15, 8) };
+    private readonly CheckBox closeAfter = new() { Content = "Close after placement", Margin = new(0, 8, 0, 8) };
+    private readonly ContentControl inspector = new();
+    private readonly TextBlock selectedTitle = new() { FontSize = 17, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new(0, 0, 0, 7) };
+    private readonly Image selectedIcon = new() { Width = 26, Height = 26, Margin = new(0, 0, 9, 7) };
+    private readonly TextBlock searchHint = new() { Text = "Find a window…", IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center, Margin = new(9, 0, 0, 4), FontSize = 12 };
+    private readonly CancellationTokenSource visualCancellation = new();
+    private readonly SemaphoreSlim visualSlots = new(4);
+    private readonly UniformGrid cards = new() { Columns = 2, VerticalAlignment = VerticalAlignment.Top };
+    private readonly ScrollViewer sidebar = new() { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
+    private readonly TextBox search = new() { Padding = new(8, 6, 8, 6), Margin = new(0, 4, 0, 8) };
+    private readonly List<(Row Row, WindowThumbnail Thumbnail, Border Frame)> planViews = [];
+    private readonly DispatcherTimer thumbnailTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private ArrangementPlan plan = new([], "Select windows.");
-    private bool initialized;
+    private IReadOnlyList<ArrangementPlan> candidates = [];
+    private IReadOnlyList<ArrangementItem> planItems = [];
+    private int candidateIndex;
+    private bool initialized, closing, applying, updatingThumbnails;
     private Row? selected;
     private Row? main;
-    private readonly ComboBox layout = new() { ItemsSource = new[] { "Smart", "Equal tiles" }, SelectedIndex = 0, Width = 120, Margin = new(5) };
+    private readonly ComboBox layout = new() { ItemsSource = new[] { "Smart", "Equal tiles" }, SelectedIndex = 0, Width = 110, Margin = new(5) };
     private readonly HashSet<string> unresolved = new(StringComparer.OrdinalIgnoreCase);
     private readonly WindowTarget? openingTarget;
     private double uiScale;
+    private nint handle;
     private PanelBackdrop? backdrop;
 
     internal AutoArrangeWindow(DisplayMonitor monitor, AppSettings original, Func<AppSettings, string?> save,
-        Action<DisplayMonitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>> apply, IReadOnlyList<PreviewWindowEntry>? capturedEntries = null, WindowTarget? openingTarget = null)
+        Action<DisplayMonitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>> apply, IReadOnlyList<PreviewWindowEntry>? capturedEntries = null, WindowTarget? openingTarget = null,
+        Func<DisplayMonitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>, Task<PlacementResult>>? applyAsync = null, bool closeAfterPlacement = false, Func<Task<PlacementResult>>? undoAsync = null)
     {
-        this.monitor = monitor; settings = original.Clone(); this.save = save; this.apply = apply; this.openingTarget = openingTarget;
-        Title = "GridPilot — Auto arrange";
+        this.monitor = monitor; settings = original.Clone(); this.save = save; this.apply = apply; this.openingTarget = openingTarget; this.applyAsync = applyAsync; this.undoAsync = undoAsync; closeAfter.IsChecked = closeAfterPlacement;
+        Title = "GridPilot — Auto arrange"; FontFamily = new FontFamily("Segoe UI"); FontSize = 13;
+        WindowStyle = WindowStyle.None;
+        System.Windows.Shell.WindowChrome.SetWindowChrome(this, new System.Windows.Shell.WindowChrome { CaptionHeight = 0, ResizeBorderThickness = new(6), CornerRadius = new(10), GlassFrameThickness = new(-1), UseAeroCaptionButtons = false });
         var display = MonitorService.ForWindow(Native.GetForegroundWindow(), MonitorService.GetAll());
-        double availableWidth = Math.Max(1, display.Work.Width * 96d / display.Dpi - 20);
-        double availableHeight = Math.Max(1, display.Work.Height * 96d / display.Dpi - 20);
+        double availableWidth = Math.Max(1, display.Work.Width * 96d / display.Dpi - 20), availableHeight = Math.Max(1, display.Work.Height * 96d / display.Dpi - 20);
         uiScale = settings.ArrangementUiScale == 0 ? (monitor.Work.Width >= 6000 && monitor.Dpi <= 120 ? 2 : 1) : settings.ArrangementUiScale;
-        Width = Math.Min(1100 * uiScale, availableWidth); Height = Math.Min(820 * uiScale, availableHeight);
-        MinWidth = Math.Min(680 * uiScale, availableWidth); MinHeight = Math.Min(480 * uiScale, availableHeight);
+        Width = Math.Min(1120 * uiScale, availableWidth); Height = Math.Min(830 * uiScale, availableHeight);
+        MinWidth = Math.Min(740 * uiScale, availableWidth); MinHeight = Math.Min(560 * uiScale, availableHeight);
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         SetResourceReference(BackgroundProperty, "SurfaceBrush"); SetResourceReference(ForegroundProperty, "TextBrush");
-        var root = new DockPanel { Margin = new Thickness(22), LayoutTransform = new ScaleTransform(uiScale, uiScale) };
-        SourceInitialized += (_, _) => backdrop = new PanelBackdrop(this, new System.Windows.Interop.WindowInteropHelper(this).Handle, settings.SmokedGlass);
-        Closed += (_, _) => backdrop?.Dispose();
-        // On small/high-scale work areas, scroll the entire sheet so the action footer
-        // remains reachable instead of allowing minimum size to push it off-screen.
+        var root = new DockPanel { Margin = new(18), LayoutTransform = new ScaleTransform(uiScale, uiScale) };
         Content = new ScrollViewer { Content = root, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
-        var heading = new StackPanel(); DockPanel.SetDock(heading, Dock.Top); root.Children.Add(heading);
-        heading.Children.Add(new TextBlock { Text = "Auto arrange", FontSize = 25, FontWeight = FontWeights.SemiBold });
-        heading.Children.Add(new TextBlock { Text = monitor.ShortLabel + " · visible, resizable windows on this display", Margin = new Thickness(0, 5, 0, 15) });
-        var toolbar = new WrapPanel(); heading.Children.Add(toolbar);
-        toolbar.Children.Add(new TextBlock { Text = "Layout", VerticalAlignment = VerticalAlignment.Center }); toolbar.Children.Add(layout);
-        toolbar.Children.Add(new TextBlock { Text = "Interface size", VerticalAlignment = VerticalAlignment.Center, Margin = new(14, 0, 0, 0) });
-        var scalePicker = new ComboBox { ItemsSource = new[] { "Auto", "100%", "150%", "200%", "250%" }, SelectedIndex = settings.ArrangementUiScale == 0 ? 0 : settings.ArrangementUiScale == 1 ? 1 : settings.ArrangementUiScale == 1.5 ? 2 : settings.ArrangementUiScale == 2 ? 3 : 4, Width = 90, Margin = new(5) };
-        toolbar.Children.Add(scalePicker);
-        var manage = new Button { Content = "Saved places…", Padding = new(8, 5, 8, 5), Margin = new(10, 5, 0, 5) };
-        manage.Click += (_, _) => ManagePlaces(); toolbar.Children.Add(manage);
-        layout.SelectionChanged += (_, _) => Recalculate();
+        var header = new StackPanel(); DockPanel.SetDock(header, Dock.Top); root.Children.Add(header);
+        var titlebar = new DockPanel { Background = Brushes.Transparent, Margin = new(0, 0, 0, 6), Height = 30 };
+        var close = ActionButton("×", Close); close.FontSize = 21; close.BorderThickness = new(0); close.Padding = new(8, 0, 8, 0); close.ToolTip = "Close (Escape)"; DockPanel.SetDock(close, Dock.Right); titlebar.Children.Add(close);
+        var brand = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var mark = new System.Windows.Shapes.Path { Data = Geometry.Parse("M0,0 H8 V8 H0 Z M11,0 H19 V8 H11 Z M0,11 H8 V19 H0 Z M11,11 H19 V19 H11 Z"), Width = 20, Height = 20, Stretch = Stretch.Fill, Margin = new(0, 0, 9, 0) }; mark.SetResourceReference(System.Windows.Shapes.Shape.FillProperty, "AccentBrush"); brand.Children.Add(mark);
+        brand.Children.Add(new TextBlock { Text = "GridPilot", FontSize = 16, FontWeight = FontWeights.SemiBold });
+        brand.Children.Add(new TextBlock { Text = "Auto arrange", FontSize = 13, Margin = new(18, 2, 0, 0) }); titlebar.Children.Add(brand); header.Children.Add(titlebar);
+        titlebar.MouseLeftButtonDown += (_, e) =>
+        {
+            for (DependencyObject? source = e.OriginalSource as DependencyObject; source is not null && source != titlebar; source = VisualTreeHelper.GetParent(source)) if (source is Button) return;
+            if (e.ButtonState == MouseButtonState.Pressed) { DragMove(); e.Handled = true; }
+        };
+        header.Children.Add(new TextBlock { Text = monitor.ShortLabel + " · select a window, tune its space, then accept", Margin = new(0, 5, 0, 8) });
+        var toolbar = new WrapPanel(); header.Children.Add(toolbar); toolbar.Children.Add(layout); toolbar.Children.Add(reroll);
+        var manage = ActionButton("Saved places…", ManagePlaces); toolbar.Children.Add(manage);
+        var scalePicker = new ComboBox { ItemsSource = new[] { "UI Auto", "UI 100%", "UI 150%", "UI 200%", "UI 250%" }, SelectedIndex = settings.ArrangementUiScale == 0 ? 0 : settings.ArrangementUiScale == 1 ? 1 : settings.ArrangementUiScale == 1.5 ? 2 : settings.ArrangementUiScale == 2 ? 3 : 4, Width = 105, Margin = new(10, 5, 0, 5) };
+        var viewOptions = new Expander { Header = "View options", Content = scalePicker, Margin = new(12, 6, 0, 0) }; viewOptions.SetResourceReference(ForegroundProperty, "TextBrush"); toolbar.Children.Add(viewOptions);
         var footer = new StackPanel(); DockPanel.SetDock(footer, Dock.Bottom); root.Children.Add(footer);
-        footer.Children.Add(status); footer.Children.Add(remember);
+        footer.Children.Add(status);
+        var preferences = new WrapPanel(); preferences.Children.Add(remember); preferences.Children.Add(closeAfter); footer.Children.Add(preferences);
         var actions = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Right };
-        var cancel = new Button { Content = "Cancel", IsCancel = true, Padding = new Thickness(16, 9, 16, 9), Margin = new Thickness(0, 0, 10, 0) };
-        cancel.Click += (_, _) => Close(); actions.Children.Add(cancel);
-        var saveOnly = new Button { Content = "Save rules only", Padding = new(12, 9, 12, 9), Margin = new(0, 0, 10, 0), ToolTip = "Save app rules and reserved areas without moving windows" };
-        saveOnly.Click += (_, _) => { if (SaveDraft()) status.Text = "Rules and areas saved. No windows moved."; }; actions.Children.Add(saveOnly);
-        actions.Children.Add(applyButton); footer.Children.Add(actions);
+        actions.Children.Add(ActionButton("Close", Close)); actions.Children.Add(ActionButton("Save rules only", () => { if (SaveDraft()) status.Text = "Rules saved. No windows moved."; })); actions.Children.Add(undoButton); actions.Children.Add(applyButton); footer.Children.Add(actions);
+        undoButton.Click += (_, _) => Undo();
         applyButton.SetResourceReference(BackgroundProperty, "AccentBrush"); applyButton.SetResourceReference(ForegroundProperty, "PrimaryTextBrush");
-        applyButton.Click += (_, _) => Apply();
-        var body = new Grid { Height = Math.Max(300, Height / uiScale - 310) }; body.ColumnDefinitions.Add(new() { Width = new GridLength(1.15, GridUnitType.Star) }); body.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); root.Children.Add(body);
-        SizeChanged += (_, _) => body.Height = Math.Max(260, ActualHeight / uiScale - 310);
+        applyButton.Click += (_, _) => Apply(); reroll.Click += (_, _) => Reroll(); layout.SelectionChanged += (_, _) => Recalculate();
+        var body = new Grid { Height = Math.Max(340, Height / uiScale - 290), Margin = new(0, 7, 0, 0) };
+        body.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) }); body.ColumnDefinitions.Add(new() { Width = new GridLength(310) }); root.Children.Add(body);
+        var work = new Grid { Margin = new(0, 0, 16, 0) }; work.RowDefinitions.Add(new() { Height = new GridLength(1, GridUnitType.Star) }); work.RowDefinitions.Add(new() { Height = GridLength.Auto }); body.Children.Add(work);
+        canvas.Height = canvas.Width * monitor.Work.Height / monitor.Work.Width; canvas.SetResourceReference(BackgroundProperty, "BackgroundBrush");
+        work.Children.Add(new Viewbox { Child = canvas, Stretch = Stretch.Uniform, Margin = new(0, 0, 0, 10) });
+        var selection = new StackPanel { Margin = new(0, 6, 0, 0) }; var selectedHeading = new DockPanel(); selectedHeading.Children.Add(selectedIcon); selectedHeading.Children.Add(selectedTitle); selection.Children.Add(selectedHeading); selection.Children.Add(inspector); Grid.SetRow(selection, 1); work.Children.Add(selection);
+        var catalog = new DockPanel(); Grid.SetColumn(catalog, 1); body.Children.Add(catalog);
+        var catalogHeader = new StackPanel(); DockPanel.SetDock(catalogHeader, Dock.Top); catalog.Children.Add(catalogHeader);
+        catalogHeader.Children.Add(new TextBlock { Text = "Windows", FontSize = 16, FontWeight = FontWeights.SemiBold });
+        search.ToolTip = "Filter windows by title"; System.Windows.Automation.AutomationProperties.SetName(search, "Filter windows");
+        var searchBox = new Grid(); searchBox.Children.Add(search); searchHint.SetResourceReference(ForegroundProperty, "MutedBrush"); searchBox.Children.Add(searchHint); catalogHeader.Children.Add(searchBox);
+        sidebar.Content = cards; catalog.Children.Add(sidebar);
+        SizeChanged += (_, _) => { body.Height = Math.Max(340, ActualHeight / uiScale - 290); body.ColumnDefinitions[1].Width = new GridLength(Math.Clamp(ActualWidth / uiScale * .29, 210, 330)); };
         scalePicker.SelectionChanged += (_, _) =>
         {
             settings.ArrangementUiScale = scalePicker.SelectedIndex switch { 1 => 1, 2 => 1.5, 3 => 2, 4 => 2.5, _ => 0 };
             uiScale = settings.ArrangementUiScale == 0 ? (monitor.Work.Width >= 6000 && monitor.Dpi <= 120 ? 2 : 1) : settings.ArrangementUiScale;
-            root.LayoutTransform = new ScaleTransform(uiScale, uiScale);
-            MinWidth = Math.Min(680 * uiScale, availableWidth); MinHeight = Math.Min(480 * uiScale, availableHeight);
-            Width = Math.Min(1100 * uiScale, availableWidth); Height = Math.Min(820 * uiScale, availableHeight);
-            body.Height = Math.Max(260, Height / uiScale - 310);
+            root.LayoutTransform = new ScaleTransform(uiScale, uiScale); MinWidth = Math.Min(740 * uiScale, availableWidth); MinHeight = Math.Min(560 * uiScale, availableHeight);
+            Width = Math.Min(1120 * uiScale, availableWidth); Height = Math.Min(830 * uiScale, availableHeight); body.Height = Math.Max(340, Height / uiScale - 290);
         };
-        canvas.Height = canvas.Width * monitor.Work.Height / monitor.Work.Width;
-        canvas.SetResourceReference(BackgroundProperty, "BackgroundBrush");
-        var view = new Viewbox { Child = canvas, Stretch = Stretch.Uniform, Margin = new Thickness(0, 0, 20, 14), VerticalAlignment = VerticalAlignment.Top }; body.Children.Add(view);
-        var list = new StackPanel();
-        var scroll = new ScrollViewer { Content = list, VerticalScrollBarVisibility = ScrollBarVisibility.Auto }; Grid.SetColumn(scroll, 1); body.Children.Add(scroll);
         var entries = (capturedEntries ?? PreviewWindows.Capture()).Where(e => e.UnavailableReason is null && MonitorService.ForWindow(e.Target.Handle, MonitorService.GetAll()).Device == monitor.Device).ToArray();
         var identities = entries.Select(e => Windows.ApplicationIdentity.Read(e.Target)).ToArray();
         foreach (var entry in entries)
         {
             string? id = identities[rows.Count];
             var rule = settings.ArrangementPreferences.FirstOrDefault(p => string.Equals(p.AppId, id, StringComparison.OrdinalIgnoreCase)) ?? new ArrangementPreference();
-            int number = rows.Count + 1;
-            var include = new CheckBox { Content = $"{number}. {entry.Target.Title}", IsChecked = !rule.Excluded, Margin = new Thickness(0, 8, 0, 5), ToolTip = entry.Target.Title };
-            list.Children.Add(include);
-            var quick = new WrapPanel(); list.Children.Add(quick);
-            var summary = new TextBlock { FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new(0, 0, 0, 6) }; list.Children.Add(summary);
-            var options = new WrapPanel();
-            TextBox Input(string label, string value)
-            {
-                var group = new StackPanel { Margin = new Thickness(0, 0, 14, 8) };
-                group.Children.Add(new TextBlock { Text = label, FontSize = 11, Margin = new Thickness(0, 0, 0, 3) });
-                var box = new TextBox { Text = value, Width = 140, Padding = new Thickness(5) };
-                System.Windows.Automation.AutomationProperties.SetName(box, entry.Target.Title + " " + label);
-                group.Children.Add(box); options.Children.Add(group); return box;
-            }
-            var ratio = Input("Aspect (blank = flexible)", rule.AspectRatio == 0 ? "" : rule.AspectRatio.ToString("0.####", CultureInfo.InvariantCulture));
-            var grid = Input($"Grid shape ({settings.Columns} × {settings.Rows})", rule.GridWidth == 0 ? "" : $"{rule.GridWidth}x{rule.GridHeight}");
-            var minimum = Input("Minimum frame size (px)", $"{rule.MinimumWidth}x{rule.MinimumHeight}");
-            var role = new ComboBox { ItemsSource = Enum.GetValues<ArrangementRole>(), SelectedItem = rule.Role, MinWidth = 120, Margin = new(0, 0, 10, 8) }; options.Children.Add(role);
-            var detail = new StackPanel(); detail.Children.Add(options);
-            detail.Children.Add(new TextBlock { Text = id is null ? "App identity unavailable: rules apply this time only." : "Examples: aspect 16:9 or 1:1; grid shape 3x2. Grid shape overrides aspect.", FontSize = 11, TextWrapping = TextWrapping.Wrap });
-            var expander = new Expander { Header = "App rules", Content = detail, Margin = new Thickness(20, 0, 0, 5) };
-            expander.SetResourceReference(ForegroundProperty, "TextBrush"); list.Children.Add(expander);
-            var row = new Row(entry, id, include, ratio, grid, minimum, role, summary) { Weight = rule.SpaceWeight };
+            var include = new CheckBox { Content = "Include window", IsChecked = !rule.Excluded, Margin = new(0, 0, 12, 6) };
+            TextBox Input(string value) => new() { Text = value, Width = 116, Padding = new(5), Margin = new(0, 0, 10, 5) };
+            var ratio = Input(rule.AspectRatio == 0 ? "" : rule.AspectRatio.ToString("0.####", CultureInfo.InvariantCulture));
+            var grid = Input(rule.GridWidth == 0 ? "" : $"{rule.GridWidth}x{rule.GridHeight}"); var minimum = Input($"{rule.MinimumWidth}x{rule.MinimumHeight}");
+            var role = new ComboBox { ItemsSource = Enum.GetValues<ArrangementRole>(), SelectedItem = rule.Role, Width = 116, Margin = new(0, 0, 10, 5) };
+            var row = new Row(entry, id, include, ratio, grid, minimum, role, new TextBlock { FontSize = 11, Margin = new(0, 0, 0, 7), TextWrapping = TextWrapping.Wrap }) { Weight = rule.SpaceWeight };
             var place = rule.Places.FirstOrDefault(p => p.Monitor == monitor.Device);
-            if (place is not null)
-            {
-                if (identities.Count(i => string.Equals(i, id, StringComparison.OrdinalIgnoreCase)) == 1) row.Place = place;
-                else if (id is not null) unresolved.Add(id);
-            }
-            rows.Add(row);
-            Button Action(string text, Action action)
-            {
-                var button = new Button { Content = text, Padding = new(7, 4, 7, 4), Margin = new(0, 0, 5, 5), Background = Brushes.Transparent };
-                button.Click += (_, _) => { selected = row; action(); Recalculate(); }; quick.Children.Add(button);
-                return button;
-            }
-            row.AutomaticControls.Add(Action("Make main", () => { main = row; row.Include.IsChecked = true; }));
-            row.AutomaticControls.Add(Action("− space", () => row.Weight = Math.Max(.25, row.Weight / 1.25)));
-            row.AutomaticControls.Add(Action("+ space", () => row.Weight = Math.Min(4, row.Weight * 1.25)));
-            Action("Draw place", () => EditPlace(row));
-            Action("Clear place", () => ClearPlace(row));
-            if (place is not null && unresolved.Contains(id!)) row.UseSaved = Action("Use saved place", () => { if (AppPlace(row) is { } current) AssignPlace(row, current); });
-            include.PreviewMouseDown += (_, _) => { selected = row; };
+            if (place is not null) { if (identities.Count(i => string.Equals(i, id, StringComparison.OrdinalIgnoreCase)) == 1) row.Place = place; else if (id is not null) unresolved.Add(id); }
+            rows.Add(row); BuildInspector(row); BuildCard(row);
             include.Checked += (_, _) => Recalculate(); include.Unchecked += (_, _) => Recalculate();
-            ratio.TextChanged += (_, _) => Recalculate(); grid.TextChanged += (_, _) => Recalculate(); minimum.TextChanged += (_, _) => Recalculate();
-            role.SelectionChanged += (_, _) => Recalculate();
+            ratio.TextChanged += (_, _) => Recalculate(); grid.TextChanged += (_, _) => Recalculate(); minimum.TextChanged += (_, _) => Recalculate(); role.SelectionChanged += (_, _) => Recalculate();
         }
-        selected = rows.FirstOrDefault(r => r.Entry.Target == openingTarget);
-        initialized = true; Recalculate();
-        PreviewKeyDown += (_, e) => { if (e.Key == System.Windows.Input.Key.Escape) { Close(); e.Handled = true; } };
+        selected = rows.FirstOrDefault(r => r.Entry.Target == openingTarget) ?? rows.FirstOrDefault();
+        search.TextChanged += (_, _) => FilterCards(); sidebar.ScrollChanged += (_, _) => UpdateThumbnails();
+        SourceInitialized += (_, _) => { handle = new WindowInteropHelper(this).Handle; backdrop = new PanelBackdrop(this, handle, settings.SmokedGlass); int corners = 2; Native.DwmSetWindowAttribute(handle, 33, ref corners, sizeof(int)); };
+        thumbnailTimer.Tick += (_, _) => UpdateThumbnails(); LayoutUpdated += (_, _) => UpdateThumbnails();
+        Loaded += (_, _) => { thumbnailTimer.Start(); UpdateThumbnails(); foreach (var row in rows) _ = LoadVisualAsync(row); };
+        Closed += (_, _) => { closing = true; thumbnailTimer.Stop(); visualCancellation.Cancel(); DisposePlanViews(); foreach (var row in rows) row.Thumbnail?.Dispose(); backdrop?.Dispose(); };
+        initialized = true; ShowInspector(); Recalculate();
+        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { Close(); e.Handled = true; } };
     }
 
     private static bool Pair(string value, out int width, out int height)
@@ -271,59 +275,62 @@ internal sealed class AutoArrangeWindow : Window
     }
     private void Recalculate()
     {
-        if (!initialized) return;
-        canvas.Children.Clear();
-        // Keep reservations visible even while another rule is invalid.
-        foreach (var reserved in settings.ArrangementAreas.Where(a => a.Monitor == monitor.Device).Select(a => a.Region).Concat(CurrentPlaces().Select(p => p.Region)).Distinct())
-        {
-            var outline = new Border { Width = (reserved.Right - reserved.Left) * canvas.Width, Height = (reserved.Bottom - reserved.Top) * canvas.Height, BorderBrush = Brushes.Gray, BorderThickness = new(1), Background = new SolidColorBrush(Color.FromArgb(35, 160, 160, 160)), IsHitTestVisible = false };
-            Canvas.SetLeft(outline, reserved.Left * canvas.Width); Canvas.SetTop(outline, reserved.Top * canvas.Height); canvas.Children.Add(outline);
-        }
+        if (!initialized || applying) return;
         try
         {
             var items = new List<ArrangementItem>();
             for (int i = 0; i < rows.Count; i++)
             {
-                foreach (var control in rows[i].AutomaticControls) { control.IsEnabled = rows[i].Place is null; control.ToolTip = rows[i].Place is null ? null : "Clear the fixed place to change automatic space."; }
-                if (rows[i].UseSaved is { } useSaved) useSaved.IsEnabled = AppPlace(rows[i]) is { } saved && rows[i].Place != saved;
-                if (rows[i].Include.IsChecked != true) continue;
-                var rule = ReadRule(rows[i]);
+                var row = rows[i];
+                foreach (var control in row.AutomaticControls) control.IsEnabled = row.Place is null;
+                if (row.UseSaved is { } useSaved) { useSaved.Visibility = AppPlace(row) is null ? Visibility.Collapsed : Visibility.Visible; useSaved.IsEnabled = AppPlace(row) is { } saved && row.Place != saved; }
+                if (row.Include.IsChecked != true) continue;
+                var rule = ReadRule(row);
                 double ratio = rule.GridWidth == 0 ? rule.AspectRatio : (double)monitor.Work.Width * rule.GridWidth / settings.Columns / ((double)monitor.Work.Height * rule.GridHeight / settings.Rows);
-                var role = rule.Role == ArrangementRole.Automatic ? SmartArrangement.Recognize(rows[i].AppId) : rule.Role;
-                items.Add(new((i + 1).ToString(CultureInfo.InvariantCulture), ratio, rule.MinimumWidth, rule.MinimumHeight, role, rows[i].Weight, rows[i] == main, rows[i].Place?.Region));
-                rows[i].Summary.Text = $"{role} · {rows[i].Weight:0.##}× space" + (rows[i].Place is not null ? " · Fixed place (clear to change its space)" : "");
+                var role = rule.Role == ArrangementRole.Automatic ? SmartArrangement.Recognize(row.AppId) : rule.Role;
+                items.Add(new(Id(row), ratio, rule.MinimumWidth, rule.MinimumHeight, role, row.Weight, row == main, row.Place?.Region));
+                row.Summary.Text = $"{role} · {row.Weight:0.##}× space" + (row.Place is not null ? " · Saved place" : "");
             }
             if (rows.Any(r => r.Include.IsChecked == true && r.AppId is not null && unresolved.Contains(r.AppId)))
-                throw new ArgumentException("Several windows match a saved app place. Choose Use saved place on the intended window, or Clear place. Each move still targets that exact window.");
+                throw new ArgumentException("Several windows match a saved app place. Select the intended window and choose Use saved place, or clear the place.");
             var reservations = settings.ArrangementAreas.Where(a => a.Monitor == monitor.Device).Select(a => a.Region).Concat(CurrentPlaces().Select(p => p.Region)).ToArray();
             string? targetId = openingTarget is null ? null : (rows.FindIndex(r => r.Entry.Target.Handle == openingTarget.Handle && r.Entry.Target.ProcessId == openingTarget.ProcessId) + 1).ToString(CultureInfo.InvariantCulture);
-            plan = SmartArrangement.Calculate(monitor.Work, items, settings.Gap, monitor.Dpi, reservations, layout.SelectedIndex == 1, targetId);
-            applyButton.IsEnabled = plan.Success;
+            planItems = items; candidates = SmartArrangement.Candidates(monitor.Work, items, settings.Gap, monitor.Dpi, reservations, layout.SelectedIndex == 1, targetId); candidateIndex = 0;
+            plan = candidates.FirstOrDefault() ?? SmartArrangement.Calculate(monitor.Work, items, settings.Gap, monitor.Dpi, reservations, layout.SelectedIndex == 1, targetId);
+            applyButton.IsEnabled = plan.Success; reroll.IsEnabled = candidates.Count > 1;
+            RenderPlan();
             if (!plan.Success) { status.Text = plan.Error; return; }
-            double scale = canvas.Width / monitor.Work.Width;
-            foreach (var slot in plan.Slots)
-            {
-                int index = int.Parse(slot.Id, CultureInfo.InvariantCulture) - 1;
-                var tile = new Border { Width = slot.Bounds.Width * scale, Height = slot.Bounds.Height * scale, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(3), ToolTip = rows[index].Entry.Target.Title,
-                    Child = new TextBlock { Text = $"{index + 1}. {ShortTitle(rows[index].Entry.Target.Title)}\n{slot.Bounds.Width} × {slot.Bounds.Height}", FontSize = 12, HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis } };
-                tile.SetResourceReference(Border.BackgroundProperty, "SelectionBrush"); tile.SetResourceReference(Border.BorderBrushProperty, "AccentBrush");
-                if (rows[index] == selected) { tile.BorderBrush = Brushes.Red; tile.BorderThickness = new(3); }
-                tile.MouseLeftButtonDown += (_, e) => { selected = rows[index]; Recalculate(); e.Handled = true; };
-                Canvas.SetLeft(tile, (slot.Bounds.Left - monitor.Work.Left) * scale); Canvas.SetTop(tile, (slot.Bounds.Top - monitor.Work.Top) * scale); canvas.Children.Add(tile);
-            }
-            string? mainId = layout.SelectedIndex == 0 ? SmartArrangement.MainId(items, targetId) : null;
-            status.Text = (mainId is null ? "Equal tiles" : $"{ShortTitle(rows[int.Parse(mainId, CultureInfo.InvariantCulture) - 1].Entry.Target.Title)} is the main workspace") +
-                $" · {items.Count} windows. Saved places are used on Arrange; empty subgrids stay reserved. Excluded windows can be covered. Undo restores the group.";
+            double coverage = plan.Slots.Sum(s => (double)s.Bounds.Width * s.Bounds.Height) / ((double)monitor.Work.Width * monitor.Work.Height);
+            status.Text = $"{items.Count} windows · {coverage:P0} of work area · proposal 1 of {candidates.Count}. Drag windows to swap; Accept moves them.";
         }
-        catch (ArgumentException ex) { plan = new([], ex.Message); applyButton.IsEnabled = false; status.Text = ex.Message; }
+        catch (ArgumentException ex) { plan = new([], ex.Message); candidates = []; planItems = []; applyButton.IsEnabled = reroll.IsEnabled = false; RenderPlan(); status.Text = ex.Message; }
+        UpdateSelection(); ShowInspector();
     }
     private static string ShortTitle(string title) => title.Length <= 32 ? title : title[..29] + "…";
-    private void Apply()
+    private async void Apply()
     {
-        Recalculate(); if (!plan.Success) return;
+        if (applying || !plan.Success || !ValidateLiveTargets()) return;
         if (remember.IsChecked == true && !SaveDraft()) return;
         var placements = plan.Slots.Select(s => (rows[int.Parse(s.Id, CultureInfo.InvariantCulture) - 1].Entry.Target, s.Bounds)).ToArray();
-        Close(); apply(monitor, placements);
+        applying = true; ((UIElement)Content).IsEnabled = false;
+        status.Text = "Applying and verifying the proposed frames…";
+        try
+        {
+            PlacementResult result;
+            if (applyAsync is not null) result = await applyAsync(monitor, placements);
+            else { apply(monitor, placements); result = new(true); }
+            if (closing) return;
+            if (result.Success) undoButton.IsEnabled = undoAsync is not null;
+            status.Text = result.Message ?? (result.Success ? "Layout applied. Undo restores the group. Reroll to try another proposal." : "The layout could not be applied.");
+            if (result.Success && closeAfter.IsChecked == true) Close();
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.ComponentModel.Win32Exception)
+        { if (!closing) status.Text = "Placement failed: " + ex.Message; }
+        finally
+        {
+            applying = false;
+            if (!closing) { ((UIElement)Content).IsEnabled = true; applyButton.IsEnabled = plan.Success && ValidateLiveTargets(); }
+        }
     }
     private bool SaveDraft()
     {
@@ -356,5 +363,20 @@ internal sealed class AutoArrangeWindow : Window
             return true;
         }
         catch (ArgumentException ex) { status.Text = ex.Message; return false; }
+    }
+    private async void Undo()
+    {
+        if (applying || undoAsync is null || !undoButton.IsEnabled) return;
+        applying = true; ((UIElement)Content).IsEnabled = false;
+        try
+        {
+            var result = await undoAsync();
+            if (closing) return;
+            status.Text = result.Message ?? (result.Success ? "Previous window positions restored." : "Undo could not restore every window.");
+            if (result.Success) undoButton.IsEnabled = false;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.ComponentModel.Win32Exception)
+        { if (!closing) status.Text = "Undo failed: " + ex.Message; }
+        finally { applying = false; if (!closing) ((UIElement)Content).IsEnabled = true; }
     }
 }

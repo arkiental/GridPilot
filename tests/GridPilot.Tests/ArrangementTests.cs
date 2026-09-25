@@ -38,6 +38,7 @@ internal static partial class Program
             for (int i = 0; i < 2; i++) Assert(WindowService.VisibleBounds(entries[i].Target.Handle).Near(before[i]), "failed batch rolls all windows back");
             Assert(Windows.ApplicationIdentity.Read(entries[0].Target) == Windows.ApplicationIdentity.Read(entries[1].Target), "same app windows share persistent rule identity");
             ArrangementSheetTests(monitor, entries);
+            await ArrangementPreviewNativeTests(monitor, entries);
         }
         finally { if (!fixture.HasExited) { fixture.Kill(); await fixture.WaitForExitAsync(); } }
     }
@@ -230,6 +231,20 @@ internal static partial class Program
             Assert(plan.Slots.SequenceEqual(SmartArrangement.Calculate(work, input, 8, dpi).Slots), "smart deterministic");
         }
         var screen = new PixelRect(0, 0, 3840, 2080);
+        var alternatives = SmartArrangement.Candidates(screen, named, 8, 96);
+        Assert(alternatives.Count > 1, "reroll exposes multiple feasible candidates");
+        Assert(alternatives.Select(p => string.Join(";", p.Slots.OrderBy(s => s.Id).Select(s => s.ToString()))).Distinct().Count() == alternatives.Count, "reroll candidates have distinct identity-to-frame assignments");
+        foreach (var alternative in alternatives) Valid(alternative, screen, named);
+        var swap = SmartArrangement.Swap(alternatives[0], named, "blender", "chrome"); Valid(swap, screen, named);
+        Assert(swap.Slots.Single(s => s.Id == "blender").Bounds == alternatives[0].Slots.Single(s => s.Id == "chrome").Bounds, "swap transfers entire frame rather than resizing around a new center");
+        var strict = named.Select(i => i.Id == "blender" ? i with { MinimumWidth = 32768 } : i).ToArray();
+        Assert(!SmartArrangement.Swap(alternatives[0], strict, "blender", "chrome").Success, "swap minimum conflict rejected");
+        var locked = named.Select(i => i.Id == "blender" ? i with { AspectRatio = 1 } : i).ToArray();
+        Assert(!SmartArrangement.Swap(alternatives[0], locked, "blender", "chrome").Success, "swap ratio conflict rejected without distortion");
+        Assert(!SmartArrangement.Swap(alternatives[0], named.Select(i => i.Id == "blender" ? i with { Fixed = Region.Full } : i).ToArray(), "blender", "chrome").Success, "saved places are not silently overwritten by swap");
+        var eightK = SmartArrangement.Calculate(new(0, 0, 7680, 4320), named, 8, 96);
+        Assert(Area(eightK.Slots.Single(s => s.Id == "spotify")) < 7680L * 4320 * .06, "8K100% companion geometry stays compact independently of interface scaling");
+        Assert(eightK.Slots.Sum(Area) > 7680L * 4320 * .95, "8K100% uses remaining workspace instead of wasting area to make companion compact");
         var promoted = named.Select(i => i with { Main = i.Id == "spotify" }).ToArray();
         var promotedPlan = SmartArrangement.Calculate(screen, promoted, 8, 96); Valid(promotedPlan, screen, promoted);
         Assert(Area(promotedPlan.Slots.Single(s => s.Id == "spotify")) > Area(promotedPlan.Slots.Single(s => s.Id == "blender")), "make main overrides role guess");
