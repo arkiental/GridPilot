@@ -61,6 +61,8 @@ The sidebar critic review checked native thumbnail lifecycle, clipping, destinat
 
 ### Partial workspace, 25 September
 
+The first independent critic identified grid-shape ratio precedence and stale tray-target selection. Both are corrected: nine additional core assertions cover effective destination-grid ratios and foreground identity replacement/preservation. Warning-free Release build and the updated core suite passed 4,567 assertions. No additional native run was performed for these fixes; final integrated review remains pending.
+
 Release build with warnings treated as errors passed. Core suite passed 4,558 assertions after partial-workspace geometry, ratios/minima and persistence checks. The focused `--workspace` run passed 4,565 assertions before the final two ratio core assertions were added (4,556 core + 9 native): an owned two-window fixture verifies exact vacant-slot placement, unchanged occupied-window geometry, target-only Undo and minimum refusal rollback. No input was injected. The final shared stale-obstacle guard and persistent-panel integration require integration checks and independent critic review; these focused results do not certify those pending pieces. Windows scaling was not changed. Actual 8K at 100%, mixed-monitor hardware and production-app ergonomics remain manual checks.
 
 Before broad distribution, repeat the desktop checks with two or more physical monitors at different scaling settings, portrait orientation, monitors left/above the primary display, live display disconnect/reconnect, Remote Desktop transitions, administrator-run applications, and a representative set of third-party custom-framed windows.

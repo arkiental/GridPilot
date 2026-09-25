@@ -24,6 +24,7 @@ public partial class App : Application
     private SettingsWindow? settingsWindow;
     private AutoArrangeWindow? arrangeWindow;
     private WindowTarget? lastTarget;
+    private readonly ExternalForegroundTracker externalForeground = new();
     private Region? lastRegion;
     private bool paused, manuallyPaused, exiting;
     private Native.WinEventCallback? foregroundCallback;
@@ -49,10 +50,12 @@ public partial class App : Application
         UpdateTray();
         foregroundCallback = (_, _, hwnd, _, _, _, _) =>
         {
+            externalForeground.Capture(hwnd);
             if (WindowService.Capture(hwnd, out _) is { } target) lastTarget = target;
         };
         foregroundHook = Native.SetWinEventHook(3, 3, 0, foregroundCallback, 0, 0, 2);
         lastTarget = WindowService.CaptureForeground(out _);
+        externalForeground.Capture(Native.GetForegroundWindow());
         DispatcherUnhandledException += OnUnexpectedError;
         if (!e.Args.Contains("--background") || loaded.Warning is not null || shortcutError is not null)
             ShowSettings(loaded.Warning ?? shortcutError);
@@ -235,7 +238,7 @@ public partial class App : Application
         menu.Items.Add("Open grid", null, (_, _) => Dispatcher.BeginInvoke(() => TogglePanel(true)));
         menu.Items.Add("Fill empty slot", null, (_, _) => Dispatcher.BeginInvoke(() =>
         {
-            var target = panel is { IsActive: true } ? panel.Target : lastTarget;
+            var target = externalForeground.ForTray(panel is { IsActive: true } ? panel.Target : null);
             if (target is null) Notify("Activate a resizable application window first."); else _ = FillEmptySlotAsync(target);
         }));
         undoItem = new Forms.ToolStripMenuItem("Undo last placement", null, (_, _) => Dispatcher.BeginInvoke(() => _ = UndoAsync())); menu.Items.Add(undoItem);

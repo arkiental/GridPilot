@@ -8,6 +8,10 @@ internal sealed record WorkspacePlacementPlan(DisplayMonitor? Monitor, EmptySlot
 
 internal static class PartialWorkspacePlacement
 {
+    internal static double EffectiveRatio(ArrangementPreference? preference, PixelRect work, int columns, int rows) =>
+        preference is null ? 0 : preference.GridWidth == 0 ? preference.AspectRatio :
+        (double)work.Width * preference.GridWidth / columns / ((double)work.Height * preference.GridHeight / rows);
+
     internal static WorkspacePlacementPlan Capture(WindowTarget target, string? selectedDevice, AppSettings settings)
     {
         WorkspacePlacementPlan Fail(string message) => new(null, new(null, 0, settings.PartialWorkspace.Columns * settings.PartialWorkspace.Rows, 0, message), []);
@@ -26,7 +30,8 @@ internal static class PartialWorkspacePlacement
         var app = ApplicationIdentity.Read(target);
         var preference = settings.ArrangementPreferences.FirstOrDefault(p => string.Equals(p.AppId, app, StringComparison.OrdinalIgnoreCase));
         var slot = PartialWorkspace.Find(monitor.Work, monitor.Dpi, settings.Gap, settings.PartialWorkspace,
-            obstacles.Select(e => e.Bounds).ToArray(), preference?.MinimumWidth ?? 1, preference?.MinimumHeight ?? 1, preference?.AspectRatio ?? 0);
+            obstacles.Select(e => e.Bounds).ToArray(), preference?.MinimumWidth ?? 1, preference?.MinimumHeight ?? 1,
+            EffectiveRatio(preference, monitor.Work, settings.Columns, settings.Rows));
         // Snapshot all visible frames so a changed blocker can invalidate the plan.
         var originals = captured.Select(e => (e.Target, e.Bounds)).ToList();
         if (!originals.Any(e => e.Target.Handle == target.Handle && e.Target.ProcessId == target.ProcessId))

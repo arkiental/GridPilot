@@ -8,6 +8,27 @@ internal static partial class Program
 {
     private static void PartialWorkspaceTests()
     {
+        var rule = new ArrangementPreference { GridWidth = 3, GridHeight = 2, AspectRatio = 1 };
+        double gridRatio = PartialWorkspacePlacement.EffectiveRatio(rule, new(0, 0, 3840, 2160), 6, 6);
+        Assert(Math.Abs(gridRatio - 8d / 3) < .000001, "saved grid shape overrides explicit aspect for fill");
+        rule.AspectRatio = 0;
+        Assert(PartialWorkspacePlacement.EffectiveRatio(rule, new(-1920, -500, 0, 580), 6, 6) == gridRatio, "grid-only ratio persists across equal-aspect destination sizes and origins");
+        Assert(Math.Abs(PartialWorkspacePlacement.EffectiveRatio(rule, new(0, 0, 1080, 1920), 4, 8) - 1.6875) < .000001, "fill grid ratio uses destination work area and current grid dimensions");
+        rule.GridWidth = rule.GridHeight = 0; rule.AspectRatio = 2;
+        Assert(PartialWorkspacePlacement.EffectiveRatio(rule, new(0, 0, 1080, 1920), 4, 8) == 2, "aspect-only rule retained without grid override");
+        Assert(PartialWorkspacePlacement.EffectiveRatio(null, new(0, 0, 1080, 1920), 4, 8) == 0, "unknown app has flexible shape");
+        var tracker = new ExternalForegroundTracker();
+        var resizable = new WindowTarget(101, 10, "Resizable A");
+        var fixedSize = new WindowTarget(102, 20, "Fixed-size B");
+        tracker.Observe(resizable, false, false);
+        tracker.Observe(fixedSize, false, false);
+        Assert(tracker.ForTray(null) == fixedSize, "ineligible latest external identity replaces earlier eligible app");
+        tracker.Observe(new(103, 30, "Tray"), false, true);
+        tracker.Observe(new(104, 40, "GridPilot menu"), true, false);
+        Assert(tracker.ForTray(null) == fixedSize, "tray and owned menu focus preserve intended external identity");
+        Assert(tracker.ForTray(resizable) == resizable, "actively selected panel target can explicitly override foreground history");
+        tracker.Observe(null, false, false);
+        Assert(tracker.ForTray(null) is null, "unreadable external foreground clears identity rather than falling back");
         var config = new PartialWorkspaceSettings();
         foreach (uint dpi in new uint[] { 96, 144, 192 })
         {
