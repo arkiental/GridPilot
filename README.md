@@ -6,7 +6,7 @@
 
 A native Windows 11 window-placement utility, inspired by Divvy's grid interaction with an independent interface. Built with C#, WPF, and Win32 on .NET 10.
 
-If an app returns a stable larger frame, Auto arrange verifies restoration and revises the preview using that window's observed size. Review and accept the new proposal; a recovered size refusal no longer requires a separate Undo. Learned sizes last for the open editor session.
+Auto arrange detects each window's reported minimum size before enabling Accept layout, without moving windows. Detection runs again whenever the editor opens, and the inspector shows the effective minimum. If an app enforces an additional size limit during placement, verified recovery revises the preview for review and acceptance.
 
 The Focus panel uses **Smoked Glass** in dark mode on compatible Windows 11 22H2+ desktops: a restrained charcoal shell around opaque desktop and window previews. Turn off **Settings → Smoked Glass panel** for **Matte Focus**, the opaque alternative. At panel opening or refresh, Matte Focus is also automatic when Windows transparency is off, high contrast or battery saver is active, the session is remote, hardware acceleration is insufficient, or the backdrop API is unavailable. Light mode remains opaque. The layout, orange placement controls and red selected-window marker are unchanged.
 

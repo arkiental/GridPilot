@@ -136,14 +136,14 @@ internal sealed partial class AutoArrangeWindow
     private string Id(Row row) => (rows.IndexOf(row) + 1).ToString(System.Globalization.CultureInfo.InvariantCulture);
     private void SwapProposal(string from, string to)
     {
-        if (applying || !ValidateLiveTargets()) return;
+        if (applying || detectingMinimums || !ValidateLiveTargets()) return;
         var swapped = SmartArrangement.Swap(plan, planItems, from, to);
         if (!swapped.Success) { status.Text = swapped.Error; return; }
         plan = swapped; RenderPlan(); status.Text = "Frames swapped in preview. Accept layout to move windows.";
     }
     private void Reroll()
     {
-        if (applying || !ValidateLiveTargets() || candidates.Count < 2) return;
+        if (applying || detectingMinimums || !ValidateLiveTargets() || candidates.Count < 2) return;
         for (int step = 1; step <= candidates.Count; step++)
         {
             int next = (candidateIndex + step) % candidates.Count;
@@ -182,8 +182,8 @@ internal sealed partial class AutoArrangeWindow
     private bool ValidateLiveTargets()
     {
         bool valid = !rows.Where(r => r.Include.IsChecked == true).Any(r => PreviewWindows.Validate(r.Entry) is not null);
-        applyButton.IsEnabled = !applying && valid && plan.Success;
-        reroll.IsEnabled = !applying && valid && plan.Success && candidates.Count > 1;
+        applyButton.IsEnabled = !applying && !detectingMinimums && valid && plan.Success;
+        reroll.IsEnabled = !applying && !detectingMinimums && valid && plan.Success && candidates.Count > 1;
         if (!valid) status.Text = "An included window is unavailable. Select it to exclude it, or wait for its dialog to close.";
         else if (targetsUnavailable) status.Text = "Windows are available again. Your proposal is unchanged.";
         targetsUnavailable = !valid;

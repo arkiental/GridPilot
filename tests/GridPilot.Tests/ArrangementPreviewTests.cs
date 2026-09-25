@@ -31,7 +31,7 @@ internal static partial class Program
         {
             Field<CheckBox>(sheet, "remember").IsChecked = false;
             var before = entries.Select(e => WindowService.VisibleBounds(e.Target.Handle)).ToArray();
-            sheet.Show(); await Task.Delay(300); sheet.UpdateLayout();
+            sheet.Show(); await Task.Delay(300); await sheet.MinimumDetection; sheet.UpdateLayout();
             Assert(sheet.PlanThumbnailCount == 2 && sheet.SidebarThumbnailCount == 2, "plan and two-column catalog have distinct real DWM registrations");
             Assert(Thumbnails(sheet).All(t => t.Available), "live arrangement surfaces are available from exact fixture windows");
             Assert(!sheet.AllowsTransparency && sheet.Opacity == 1 && (Native.GetWindowLongPtr(new WindowInteropHelper(sheet).Handle, -20) & 0x80000) == 0, "arrangement preserves nonlayered compositor HWND");
@@ -114,7 +114,7 @@ internal static partial class Program
         finally { sheet.Close(); }
         var failure = new AutoArrangeWindow(monitor, new(), _ => null, (_, _) => { }, entries,
             applyAsync: (_, _) => Task.FromResult(new PlacementResult(false, "Owned test refusal")), closeAfterPlacement: true) { ShowActivated = false };
-        failure.Show(); Field<CheckBox>(failure, "remember").IsChecked = false;
+        failure.Show(); await Task.Delay(30); await failure.MinimumDetection; Field<CheckBox>(failure, "remember").IsChecked = false;
         Field<Button>(failure, "applyButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30);
         Assert(failure.IsVisible && Field<TextBlock>(failure, "status").Text == "Owned test refusal", "failed async placement stays open even with close-after enabled and shows native reason");
         failure.Close();

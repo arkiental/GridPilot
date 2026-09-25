@@ -19,7 +19,7 @@ internal sealed partial class AutoArrangeWindow
     private void PreviewArrangementDrop(FrameworkElement element, Row row, DragEventArgs e)
     {
         e.Handled = true; e.Effects = DragDropEffects.None;
-        if (applying || closing || e.Data.GetData(dragFormat) is not string from)
+        if (applying || closing || detectingMinimums || e.Data.GetData(dragFormat) is not string from)
         { ClearSplitPreview(); return; }
         if ((e.KeyStates & DragDropKeyStates.ShiftKey) == 0)
         {
@@ -36,7 +36,7 @@ internal sealed partial class AutoArrangeWindow
         ClearSplitPreview(false);
         try
         {
-            if (applying || closing) return false;
+            if (applying || closing || detectingMinimums) return false;
             var candidate = ArrangementSplit.Apply(plan, planItems, from, Id(row), side, settings.Gap, monitor.Dpi);
             bool live = ValidateLiveTargets();
             if (!live) return false;
@@ -83,7 +83,7 @@ internal sealed partial class AutoArrangeWindow
 
     private void SplitProposal(string from, string to, SplitSide side)
     {
-        if (applying || closing || !ValidateLiveTargets()) return;
+        if (applying || closing || detectingMinimums || !ValidateLiveTargets()) return;
         var split = ArrangementSplit.Apply(plan, planItems, from, to, side, settings.Gap, monitor.Dpi);
         if (!split.Success) { status.Text = split.Error; return; }
         plan = split; RenderPlan(); status.Text = "Frame split in preview. Accept layout to move windows. The old area is now empty.";
