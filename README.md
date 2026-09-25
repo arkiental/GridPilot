@@ -1,6 +1,6 @@
 # GridPilot
 
-**Auto arrange:** preview a Smart layout with a larger main workspace and smaller supporting apps, or choose Equal tiles. Draw saved app places and zoom into local subgrids for small windows; empty subgrid cells stay reserved. Make main and space controls adjust the preview, while advanced rules retain exact ratios and minimums. An independent interface-size control includes automatic enlargement for 8K at 100%. Apply explicitly; Undo restores the group. See [usage and constraints](docs/AUTO_ARRANGE.md).
+**Auto arrange:** preview a Smart layout with a larger main workspace and smaller supporting apps, or choose Equal tiles. Live window previews fill the plan and two-column sidebar; select an app to edit its rules below the plan. Reroll feasible proposals, swap proposed frames, or draw saved app places and local subgrids. Accept explicitly, then keep arranging or Undo from the sheet. See [usage and constraints](docs/AUTO_ARRANGE.md).
 
 A native Windows 11 window-placement utility, inspired by Divvy's grid interaction with an independent interface. Built with C#, WPF, and Win32 on .NET 10.
 

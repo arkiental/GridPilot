@@ -33,6 +33,7 @@ internal sealed partial class AutoArrangeWindow : Window
     private readonly Action<DisplayMonitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>> apply;
     private readonly Func<DisplayMonitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>, Task<PlacementResult>>? applyAsync;
     private readonly Func<Task<PlacementResult>>? undoAsync;
+    private readonly Func<bool>? canUndo;
     private readonly Button undoButton = new() { Content = "Undo", IsEnabled = false, Padding = new(12, 9, 12, 9), Margin = new(0, 0, 8, 0) };
     private readonly Canvas canvas = new() { Width = 900, Height = 500, ClipToBounds = true };
     private readonly TextBlock status = new() { TextWrapping = TextWrapping.Wrap, Margin = new(0, 7, 0, 7), FontSize = 12 };
@@ -55,7 +56,7 @@ internal sealed partial class AutoArrangeWindow : Window
     private IReadOnlyList<ArrangementPlan> candidates = [];
     private IReadOnlyList<ArrangementItem> planItems = [];
     private int candidateIndex;
-    private bool initialized, closing, applying, updatingThumbnails;
+    private bool initialized, closing, applying, updatingThumbnails, targetsUnavailable;
     private Row? selected;
     private Row? main;
     private readonly ComboBox layout = new() { ItemsSource = new[] { "Smart", "Equal tiles" }, SelectedIndex = 0, Width = 110, Margin = new(5) };
@@ -67,9 +68,9 @@ internal sealed partial class AutoArrangeWindow : Window
 
     internal AutoArrangeWindow(DisplayMonitor monitor, AppSettings original, Func<AppSettings, string?> save,
         Action<DisplayMonitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>> apply, IReadOnlyList<PreviewWindowEntry>? capturedEntries = null, WindowTarget? openingTarget = null,
-        Func<DisplayMonitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>, Task<PlacementResult>>? applyAsync = null, bool closeAfterPlacement = false, Func<Task<PlacementResult>>? undoAsync = null)
+        Func<DisplayMonitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>, Task<PlacementResult>>? applyAsync = null, bool closeAfterPlacement = false, Func<Task<PlacementResult>>? undoAsync = null, Func<bool>? canUndo = null)
     {
-        this.monitor = monitor; settings = original.Clone(); this.save = save; this.apply = apply; this.openingTarget = openingTarget; this.applyAsync = applyAsync; this.undoAsync = undoAsync; closeAfter.IsChecked = closeAfterPlacement;
+        this.monitor = monitor; settings = original.Clone(); this.save = save; this.apply = apply; this.openingTarget = openingTarget; this.applyAsync = applyAsync; this.undoAsync = undoAsync; this.canUndo = canUndo; closeAfter.IsChecked = closeAfterPlacement;
         Title = "GridPilot — Auto arrange"; FontFamily = new FontFamily("Segoe UI"); FontSize = 13;
         WindowStyle = WindowStyle.None;
         System.Windows.Shell.WindowChrome.SetWindowChrome(this, new System.Windows.Shell.WindowChrome { CaptionHeight = 0, ResizeBorderThickness = new(6), CornerRadius = new(10), GlassFrameThickness = new(-1), UseAeroCaptionButtons = false });
@@ -151,7 +152,7 @@ internal sealed partial class AutoArrangeWindow : Window
         thumbnailTimer.Tick += (_, _) => UpdateThumbnails(); LayoutUpdated += (_, _) => UpdateThumbnails();
         Loaded += (_, _) => { thumbnailTimer.Start(); UpdateThumbnails(); foreach (var row in rows) _ = LoadVisualAsync(row); };
         Closed += (_, _) => { closing = true; thumbnailTimer.Stop(); visualCancellation.Cancel(); DisposePlanViews(); foreach (var row in rows) row.Thumbnail?.Dispose(); backdrop?.Dispose(); };
-        initialized = true; ShowInspector(); Recalculate();
+        initialized = true; ShowInspector(); Recalculate(); RefreshUndo();
         PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { Close(); e.Handled = true; } };
     }
 
@@ -329,7 +330,7 @@ internal sealed partial class AutoArrangeWindow : Window
         finally
         {
             applying = false;
-            if (!closing) { ((UIElement)Content).IsEnabled = true; applyButton.IsEnabled = plan.Success && ValidateLiveTargets(); }
+            if (!closing) { ((UIElement)Content).IsEnabled = true; ValidateLiveTargets(); RefreshUndo(); }
         }
     }
     private bool SaveDraft()
@@ -377,6 +378,10 @@ internal sealed partial class AutoArrangeWindow : Window
         }
         catch (Exception ex) when (ex is InvalidOperationException or ArgumentException or System.ComponentModel.Win32Exception)
         { if (!closing) status.Text = "Undo failed: " + ex.Message; }
-        finally { applying = false; if (!closing) ((UIElement)Content).IsEnabled = true; }
+        finally { applying = false; if (!closing) { ((UIElement)Content).IsEnabled = true; ValidateLiveTargets(); RefreshUndo(); } }
+    }
+    private void RefreshUndo()
+    {
+        if (canUndo is not null) undoButton.IsEnabled = !applying && undoAsync is not null && canUndo();
     }
 }
