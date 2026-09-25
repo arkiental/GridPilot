@@ -28,6 +28,16 @@ internal static partial class Program
     public static int Main(string[] args)
     {
         if (args.Contains("--fixture")) { Fixture(args); return 0; }
+        if (args.Length == 2 && args[0] == "--inspect-minimum" && uint.TryParse(args[1], out uint inspectedProcess))
+        {
+            foreach (var entry in PreviewWindows.Capture().Where(e => e.Target.ProcessId == inspectedProcess))
+            {
+                var display = MonitorService.ForWindow(entry.Target.Handle, MonitorService.GetAll());
+                var minimum = WindowMinimums.ReadAsync(entry.Target, display).GetAwaiter().GetResult();
+                Console.WriteLine($"HWND={entry.Target.Handle} PID={inspectedProcess}: detected minimum {minimum?.MinimumWidth} x {minimum?.MinimumHeight} physical pixels; window DPI={Native.GetDpiForWindow(entry.Target.Handle)}, display DPI={display.Dpi}.");
+            }
+            return 0;
+        }
         try
         {
             CoreTests();
@@ -44,7 +54,7 @@ internal static partial class Program
                 application.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Parse(resources.ToString()));
                 application.Startup += async (_, _) =>
                 {
-                    try { if (args.Contains("--interactions")) await PlacementInteractionNativeTests(); else if (args.Contains("--arrangement")) await ArrangementNativeTests(); else if (args.Contains("--sidebar")) await SidebarNativeTests(); else await NativeTests(); } catch (Exception ex) { failure = ex; }
+                    try { if (args.Contains("--minimums")) await WindowMinimumNativeTests(); else if (args.Contains("--interactions")) await PlacementInteractionNativeTests(); else if (args.Contains("--arrangement")) await ArrangementNativeTests(); else if (args.Contains("--sidebar")) await SidebarNativeTests(); else await NativeTests(); } catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
                 };
                 application.Run();
@@ -56,6 +66,7 @@ internal static partial class Program
     }
     private static void CoreTests()
     {
+        WindowMinimumTests();
         ArrangementTests();
         PlacementInteractionTests();
         var work = new PixelRect(-1920, -300, 0, 780);
@@ -413,6 +424,7 @@ internal static partial class Program
         finally { if (!fixedFixture.HasExited) { fixedFixture.Kill(); await fixedFixture.WaitForExitAsync(); } }
 
         await MinimumPlacementTests();
+        await WindowMinimumNativeTests();
         await ArrangementNativeTests();
         await PlacementInteractionNativeTests();
         await NativePickingTests();
@@ -615,6 +627,7 @@ internal static partial class Program
     }
     private static void Fixture(string[] args)
     {
+        if (args.Contains("--dpi-unaware")) Native.SetThreadDpiAwarenessContext(new nint(-1));
         bool fixedSize = args.Contains("--fixed"), pair = args.Contains("--pair");
         bool minWidth = args.Contains("--constrained") || args.Contains("--width-only") || args.Contains("--refuse-position");
         bool minHeight = args.Contains("--constrained") || args.Contains("--height-only") || args.Contains("--refuse-position");
@@ -657,6 +670,15 @@ internal static partial class Program
                     System.Runtime.InteropServices.Marshal.WriteInt32(lParam, IntPtr.Size * 2, original.Left);
                     System.Runtime.InteropServices.Marshal.WriteInt32(lParam, IntPtr.Size * 2 + 4, original.Top);
                 }
+                return 0;
+            });
+        };
+        if (args.Contains("--slow-minimum")) window.Loaded += (_, _) =>
+        {
+            bool armed = true;
+            HwndSource.FromHwnd(new WindowInteropHelper(window).Handle)!.AddHook((nint hwnd, int message, nint wParam, nint lParam, ref bool handled) =>
+            {
+                if (message == 0x24 && armed) { armed = false; Thread.Sleep(900); }
                 return 0;
             });
         };
