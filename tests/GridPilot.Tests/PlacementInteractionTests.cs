@@ -22,6 +22,12 @@ internal static partial class Program
         var swap = PlacementInteractions.Swap(work, a, b);
         Assert(swap.Success && swap.Slots[0].Bounds == b.Bounds && swap.Slots[1].Bounds == a.Bounds, "unequal swap preserves exact position AND size");
         Assert(!PlacementInteractions.Swap(work, a with { MinimumWidth = 1500 }, b).Success, "swap refuses incompatible minimum without resizing");
+        var atMinimum = new PixelRect(-1800, 20, -1480, 260);
+        var recoveryProbes = WindowService.RecoveryProbes(atMinimum, work, atMinimum);
+        Assert(recoveryProbes.Count is > 0 and <= 2 && recoveryProbes.All(p => p.Width >= atMinimum.Width && p.Height >= atMinimum.Height && !p.Near(atMinimum)), "recovery probes preserve minimum dimensions and require actual native response");
+        Assert(recoveryProbes.All(p => p.Left >= work.Left && p.Top >= work.Top && p.Right <= work.Right && p.Bottom <= work.Bottom), "recovery uses available on-screen slack");
+        var fullProbes = WindowService.RecoveryProbes(work, work, work);
+        Assert(fullProbes.Count == 2 && fullProbes.All(p => p.Width >= work.Width && p.Height >= work.Height && p.Left >= work.Left - 2 && p.Top >= work.Top - 2 && p.Right <= work.Right + 2 && p.Bottom <= work.Bottom + 2), "full-work recovery uses only bounded two-pixel excursions without shrinking");
         Assert(PlacementInteractions.Swap(work, a, b with { Bounds = a.Bounds with { Left = -1600 } }).Success, "intentional swap supports overlapping originals");
         foreach (uint dpi in new uint[] { 96, 144, 192 })
         {
@@ -34,6 +40,7 @@ internal static partial class Program
     private static async Task PlacementInteractionNativeTests()
     {
         await PendingPlacementRecoveryTests();
+        await MinimumPlacementRecoveryTest();
         using (var delayed = StartFixture("--slow-batch-resize"))
         {
             try
@@ -183,5 +190,29 @@ internal static partial class Program
                 foreach (var process in new[] { delayed, blocker }) if (!process.HasExited) { process.Kill(); await process.WaitForExitAsync(); }
             }
         }
+    }
+    private static async Task MinimumPlacementRecoveryTest()
+    {
+        using var fixture = StartFixture("--constrained");
+        try
+        {
+            var hwnd = await WaitForFixture(fixture); await Task.Delay(100);
+            var target = WindowService.Capture(hwnd, out _)!;
+            var monitor = MonitorService.ForWindow(hwnd, MonitorService.GetAll());
+            var initial = WindowService.VisibleBounds(hwnd);
+            // Windows clamps this owned fixture to its real WPF minimum, in destination DPI.
+            Native.SetWindowPos(hwnd, 0, initial.Left, initial.Top, 1, 1, 0x4014); await Task.Delay(180);
+            var minimum = WindowService.VisibleBounds(hwnd);
+            Assert(minimum.Width > 320 && minimum.Height > 240, "native fixture enforces a minimum larger than the rejected request");
+            var service = new WindowService(() => PreviewWindows.Capture().Where(e => e.Target.ProcessId == fixture.Id).ToArray());
+            var rejected = await service.ArrangeAsync(monitor, [(target, new(minimum.Left, minimum.Top, minimum.Left + 1, minimum.Top + 1))], [(target, minimum)]);
+            Assert(!rejected.Success && service.CanUndo, "undersized request retains recovery for an unchanged minimum-sized window");
+            var recovered = await service.UndoAsync();
+            Assert(recovered.Success && !service.CanUndo && WindowService.VisibleBounds(hwnd).Near(minimum), "minimum-compatible Undo acknowledges and restores exact original frame: " + recovered.Message);
+            await Task.Delay(300);
+            Assert(WindowService.VisibleBounds(hwnd).Near(minimum), "minimum-sized recovery leaves no queued probe or off-screen frame");
+            Assert((await service.ArrangeAsync(monitor, [(target, minimum)], [(target, minimum)])).Success, "recovered minimum-sized window permits subsequent valid placement");
+        }
+        finally { if (!fixture.HasExited) { fixture.Kill(); await fixture.WaitForExitAsync(); } }
     }
 }
