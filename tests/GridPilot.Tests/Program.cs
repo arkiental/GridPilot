@@ -46,11 +46,12 @@ internal static partial class Program
                 {
                     try
                     {
-                        if (args.Contains("--workspace")) await PartialWorkspaceNativeTests();
+                        if (args.Contains("--panel-lifecycle")) await PanelPlacementControllerNativeTests();
+                        else if (args.Contains("--workspace")) await PartialWorkspaceNativeTests();
                         else if (args.Contains("--interactions")) await PlacementInteractionNativeTests();
                         else if (args.Contains("--arrangement")) await ArrangementNativeTests();
                         else if (args.Contains("--sidebar")) await SidebarNativeTests();
-                        else { await NativeTests(); await PartialWorkspaceNativeTests(); }
+                        else { await NativeTests(); await PartialWorkspaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); }
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
@@ -67,6 +68,7 @@ internal static partial class Program
         ArrangementTests();
         PartialWorkspaceTests();
         PlacementInteractionTests();
+        PanelPlacementControllerTests().GetAwaiter().GetResult();
         var work = new PixelRect(-1920, -300, 0, 780);
         Assert(PlacementMath.Calculate(work, Region.Full, 8, 96) == new PixelRect(-1912, -292, -8, 772), "negative desktop origin");
         Assert(PlacementMath.Calculate(work, Region.Full, 8, 192) == new PixelRect(-1904, -284, -16, 764), "200% gap conversion");

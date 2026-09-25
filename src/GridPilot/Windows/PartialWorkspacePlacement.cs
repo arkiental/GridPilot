@@ -12,7 +12,8 @@ internal static class PartialWorkspacePlacement
         preference is null ? 0 : preference.GridWidth == 0 ? preference.AspectRatio :
         (double)work.Width * preference.GridWidth / columns / ((double)work.Height * preference.GridHeight / rows);
 
-    internal static WorkspacePlacementPlan Capture(WindowTarget target, string? selectedDevice, AppSettings settings)
+    internal static WorkspacePlacementPlan Capture(WindowTarget target, string? selectedDevice, AppSettings settings,
+        Func<IReadOnlyList<PreviewWindowEntry>>? captureCatalog = null)
     {
         WorkspacePlacementPlan Fail(string message) => new(null, new(null, 0, settings.PartialWorkspace.Columns * settings.PartialWorkspace.Rows, 0, message), []);
         if (!WindowService.IsSameWindow(target) || WindowService.Capture(target.Handle, out _) is null)
@@ -23,7 +24,7 @@ internal static class PartialWorkspacePlacement
             ? selectedDevice ?? MonitorService.ForWindow(target.Handle, displays).Device : settings.PartialWorkspace.Monitor;
         var monitor = displays.FirstOrDefault(m => string.Equals(m.Device, device, StringComparison.OrdinalIgnoreCase));
         if (monitor is null) return Fail("The workspace display was disconnected. Choose a display in Settings.");
-        var captured = PreviewWindows.Capture();
+        var captured = captureCatalog?.Invoke() ?? PreviewWindows.Capture();
         // Do not treat the target's old frame as an obstacle. Keep every other frame,
         // including unmovable/elevated apps and frames crossing monitor boundaries.
         var obstacles = captured.Where(e => e.Target.Handle != target.Handle || e.Target.ProcessId != target.ProcessId).ToArray();
