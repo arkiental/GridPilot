@@ -24,6 +24,18 @@ internal static partial class Program
         try { await controller.RunAsync(null, null, () => Task.FromException<PlacementResult>(new NullReferenceException("fixture programming fault"))); }
         catch (NullReferenceException) { propagated = true; }
         Assert(propagated && (await controller.RunAsync(null, null, () => Task.FromResult(new PlacementResult(true)))).Success, "unexpected fault propagates and releases operation ownership");
+        Region? savedPlacementSeed = null;
+        var requestedRegion = new Region(0, 0, .5, .5);
+        completion = new();
+        var batch = controller.RunBatchAsync(null, requestedRegion, () => completion.Task, region => savedPlacementSeed = region);
+        Assert(savedPlacementSeed is null, "batch does not remember requested rectangle before success");
+        requestedRegion = Region.Full;
+        completion.SetResult(new(true)); await batch;
+        Assert(savedPlacementSeed == new Region(0, 0, .5, .5), "successful batch callback remembers dispatch-time grid rectangle for Add placement");
+        await controller.RunBatchAsync(null, Region.Full, () => Task.FromResult(new PlacementResult(false)), region => savedPlacementSeed = region);
+        Assert(savedPlacementSeed == new Region(0, 0, .5, .5), "failed batch callback preserves last successful placement seed");
+        await controller.RunBatchAsync(null, null, () => Task.FromResult(new PlacementResult(true)), region => savedPlacementSeed = region);
+        Assert(savedPlacementSeed == new Region(0, 0, .5, .5), "successful exact swap does not replace proportional placement seed");
     }
 
     private static async Task PanelPlacementControllerNativeTests()

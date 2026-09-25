@@ -107,7 +107,7 @@ public partial class App : Application
         panel = next;
         next.Closed += (_, _) => { if (panel == next) panel = null; };
         next.PlacementRequested += (selected, region, device) => _ = PlaceAsync(selected, device, region, true);
-        next.BatchPlacementRequested += (display, placements, originals) => _ = ApplyPanelBatchAsync(next, display, placements, originals);
+        next.BatchPlacementRequested += (display, placements, originals) => _ = ApplyPanelBatchAsync(next, display, placements, originals, next.PendingPlacementRegion);
         next.EmptySlotRequested += (selected, device) => _ = FillEmptySlotAsync(selected, device);
         next.PresetRequested += (selected, preset, device) => _ = preset.Monitor == "current"
             ? PlaceAsync(selected, device, preset.Region) : ApplyPresetAsync(selected, preset);
@@ -144,9 +144,9 @@ public partial class App : Application
     }
     private async Task ApplyPanelBatchAsync(GridPanel owner, DisplayMonitor monitor,
         IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements,
-        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> originals)
+        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> originals, Region? originatingRegion)
     {
-        await Placements.RunAsync(owner, null, () => windows.ArrangeAsync(monitor, placements, originals), true);
+        await Placements.RunBatchAsync(owner, originatingRegion, () => windows.ArrangeAsync(monitor, placements, originals), region => lastRegion = region);
         UpdateTray();
     }
     private async Task ApplyPresetAsync(WindowTarget target, PlacementPreset preset)

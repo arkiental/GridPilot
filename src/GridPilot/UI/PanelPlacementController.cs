@@ -9,6 +9,16 @@ internal sealed class PanelPlacementController(Func<GridPanel?> current, Func<bo
 {
     private bool running;
 
+    internal async Task<PlacementResult> RunBatchAsync(GridPanel? owner, Region? originatingRegion,
+        Func<Task<PlacementResult>> operation, Action<Region> rememberRegion)
+    {
+        var result = await RunAsync(owner, null, operation, true);
+        // Capture the requested proportional rectangle at dispatch. Native reflow
+        // slots may differ, and an exact swap has no new placement-preset seed.
+        if (result.Success && originatingRegion is { } region) rememberRegion(region);
+        return result;
+    }
+
     internal async Task<PlacementResult> RunAsync(GridPanel? owner, WindowTarget? target,
         Func<Task<PlacementResult>> operation, bool ownsPendingRequest = false)
     {

@@ -80,6 +80,7 @@ public partial class GridPanel
     {
         pendingPlacements.Clear(); swapSource = null; swapCandidates = []; swapIndex = -1; preview.Hide();
         if (placementPending || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
+        PendingPlacementRegion = null;
         var hits = PreviewWindows.AtPoint(capturedWindows, monitor.Work, x, y);
         var source = hits.FirstOrDefault(e => Same(e.Target, target)) ?? (hits.Count == 1 ? hits[0] : null);
         if (source is null) { SelectionLabel.Text = "Ctrl-click to select the intended source window, then Alt-drag it."; return; }

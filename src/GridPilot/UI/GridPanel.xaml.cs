@@ -234,6 +234,7 @@ public partial class GridPanel : Window
     internal void Commit(Region region)
     {
         if (MonitorPicker.SelectedItem is not DisplayMonitor monitor || closing || placementPending) return;
+        PendingPlacementRegion = region;
         var plan = BuildReflow(monitor, region);
         ShowInteractionPlan(monitor, plan);
         if (plan.Success) SubmitPlan(monitor);
