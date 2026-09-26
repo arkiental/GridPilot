@@ -43,7 +43,7 @@ Clicking one cell places the window there. If the app requires a larger minimum 
 - Grid: independently configurable **1–12 columns and rows**, default **6 × 6**.
 - Gap: **0–64 logical pixels**, default **8**. Adjacent placements share one gap; the same gap appears at outer edges. Gaps scale with the destination display.
 - Twelve built-in proportional placements: halves, quarters, thirds, and fill available space.
-- Add, rename, edit, and remove placements in **Saved placements**. Drag on the editor's grid and optionally record a global shortcut. A new placement starts with your most recent successful selection when available.
+- Open **Settings → Shortcuts** to see each placement's name, global key combination and miniature grid. Select a row to rename it, record a shortcut or drag its grid selection; use **New** and **Delete** to manage the list. **Save settings** commits changes; **Cancel** discards them. A new placement starts with your most recent successful selection when available.
 - Destinations: current, next, previous, or a particular connected display. Next/previous follow left-to-right, then top-to-bottom display order. A disconnected saved display falls back to the target's current display. Display numbers in GridPilot follow this spatial order and may differ from Windows Settings.
 - In the grid panel, current-display preset buttons use the selected destination. Presets explicitly assigned to another destination retain that assignment.
 - Presets store proportions, so changing the grid does not alter existing saved placements.

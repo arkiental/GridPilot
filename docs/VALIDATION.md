@@ -64,3 +64,11 @@ Before broad distribution, repeat the desktop checks with two or more physical m
 Application minimum sizes are accommodated only after repeated stable resize responses and verified final geometry. Other unsupported constraints are reported failures, with bounded corrections and verified rollback. The proposed 100 ms warm-activation target is not a certified performance guarantee; one observed warm activation during UI checking was approximately 73 ms, while first activation was approximately 225 ms on the development machine.
 
 Independent critic review found no blocking defects. Immediate app-owned battery-saver transitions while the panel remains open are not guaranteed: there is no dedicated power-setting subscription. DWM controls system material adaptation, and panel opening/refresh reevaluates eligibility.
+
+## Visual shortcut editor, 26 September (issue #32)
+
+Release build with warnings as errors passed with zero warnings. Coordinator independently ran the core suite (2,537 assertions) and focused `--shortcuts` owned WPF suite (2,554 assertions including core) at c1b9fe1. Coverage includes live name/key/grid preview updates without losing row identity, grid dimension/proportion preservation, New/Delete, draft isolation, Save to temporary settings storage, Cancel, duplicate shortcut rejection, invalid capture retained across rows, callback registration failure, selected-text resource binding, and narrow 660px layout. No user input was injected and no user windows were moved. The production shortcut registration service is unchanged; actual global key presses were not exercised by these focused tests.
+
+Independent GPT-6 Astra High review approved the implementation after selected-text contrast and theme-refresh findings were fixed. Miniature theme subscriptions follow Loaded/Unloaded lifetime; actual system High Contrast toggling was not performed. The owned render below is a WPF fixture, not a screenshot of a user's settings or a claim of mixed-monitor hardware validation.
+
+![Shortcut editor at minimum width](images/shortcuts-editor.png)
