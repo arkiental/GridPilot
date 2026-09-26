@@ -27,7 +27,7 @@ public sealed class ShortcutBox : TextBox
         if ((shortcut.Modifiers & 1) != 0) keys.Add("Alt");
         if ((shortcut.Modifiers & 4) != 0) keys.Add("Shift");
         var key = KeyInterop.KeyFromVirtualKey((int)shortcut.Key);
-        keys.Add(key == Key.Back ? "Backspace" : key.ToString());
+        keys.Add(key switch { Key.Back => "Backspace", Key.Prior => "Page Up", Key.Next => "Page Down", _ => key.ToString() });
         return string.Join(" + ", keys);
     }
     protected override void OnPreviewKeyDown(KeyEventArgs e)
@@ -38,9 +38,14 @@ public sealed class ShortcutBox : TextBox
         e.Handled = true;
         if (key is Key.LeftCtrl or Key.RightCtrl or Key.LeftAlt or Key.RightAlt or Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin) return;
         var modifiers = Keyboard.Modifiers;
-        if (modifiers == ModifierKeys.None && key is Key.Back or Key.Delete) { Set(null); Changed?.Invoke(); return; }
+        if (modifiers == ModifierKeys.None && key is Key.Back or Key.Delete) { Record(null); return; }
         var shortcut = new Shortcut((uint)modifiers, (uint)KeyInterop.VirtualKeyFromKey(key));
-        if (shortcut.Validate() is { } error) { CaptureError = error; Text = error; return; }
+        Record(shortcut);
+    }
+    internal void RestoreError(string error) { CaptureError = error; Text = error; }
+    internal void Record(Shortcut? shortcut)
+    {
+        if (shortcut?.Validate() is { } error) { RestoreError(error); Changed?.Invoke(); return; }
         Set(shortcut);
         Changed?.Invoke();
     }
