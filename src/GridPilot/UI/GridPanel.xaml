@@ -16,7 +16,7 @@
   <Grid>
    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
    <StackPanel Grid.Row="0">
-    <DockPanel Margin="8,0,2,7" Height="30">
+    <DockPanel Margin="8,0,2,7" Height="30" MouseLeftButtonDown="TitleDrag">
      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
       <Button x:Name="SidebarToggle" Style="{StaticResource IconButton}" Content="&#xE8FD;" ToolTip="Show or hide windows (Ctrl+F to search)" AutomationProperties.Name="Show or hide window sidebar" Click="ToggleSidebarClick" Margin="0,0,8,0"/>
       <Button x:Name="UndoButton" Style="{StaticResource IconButton}" Content="&#xE7A7;" ToolTip="Undo placement (Ctrl+Z)" AutomationProperties.Name="Undo placement" Click="UndoClick"/>
@@ -35,13 +35,14 @@
     </DockPanel>
     <Border Background="{DynamicResource PanelControlBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="5" Margin="0,0,0,7" Padding="2,0">
      <DockPanel Height="32">
+      <Button Background="Transparent" DockPanel.Dock="Right" Content="Auto arrange" Click="AutoArrangeClick" Padding="10,4" BorderThickness="0" ToolTip="Preview and arrange windows on this display"/>
       <Button x:Name="GridOptionsButton" Background="Transparent" DockPanel.Dock="Right" Click="GridOptionsClick" BorderThickness="0" Padding="12,4" ToolTip="Grid size" AutomationProperties.Name="Grid size"><StackPanel Orientation="Horizontal"><TextBlock x:Name="GridSize"/><TextBlock Text="⌄" Margin="12,0,0,0"/></StackPanel></Button>
       <TextBlock DockPanel.Dock="Left" Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="18" VerticalAlignment="Center" Margin="8,0"/>
       <ComboBox x:Name="MonitorPicker" Background="Transparent" AutomationProperties.Name="Destination display" DisplayMemberPath="ShortLabel" SelectionChanged="MonitorChanged" MinHeight="28" BorderBrush="Transparent" Margin="0,0,10,0"/>
      </DockPanel>
     </Border>
    </StackPanel>
-   <local:SelectionGrid Grid.Row="1" x:Name="GridControl" AutomationProperties.Name="Desktop placement preview" ToolTip="Drag to place. Ctrl-click selects a window; repeat to cycle overlaps. Ctrl+Shift-click cycles backward. Red is the selected window; orange is its destination."/>
+   <local:SelectionGrid Grid.Row="1" x:Name="GridControl" AutomationProperties.Name="Desktop placement preview" ToolTip="Drag to resize overlapping windows into remaining cells. Alt-drag swaps exact sizes; wheel chooses among overlapping destinations. Ctrl-click selects a window; repeat to cycle overlaps. Ctrl+Shift-click cycles backward. Red is the selected window; orange is its destination."/>
    <UniformGrid Grid.Row="2" Rows="1" Columns="5" Margin="14,8,14,2" Height="86">
     <Button Style="{StaticResource PresetButton}" Click="LeftClick" AutomationProperties.Name="Place left half"><StackPanel><local:LayoutGlyph Kind="Left"/><TextBlock Text="Left" HorizontalAlignment="Center" Margin="0,8,0,0" FontSize="12"/></StackPanel></Button>
     <Button Style="{StaticResource PresetButton}" Click="RightClick" AutomationProperties.Name="Place right half"><StackPanel><local:LayoutGlyph Kind="Right"/><TextBlock Text="Right" HorizontalAlignment="Center" Margin="0,8,0,0" FontSize="12"/></StackPanel></Button>
@@ -52,6 +53,7 @@
    <Border Grid.Row="3" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,7,2,0">
     <DockPanel Height="29">
      <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE713;" ToolTip="Settings" AutomationProperties.Name="Open settings" Click="SettingsClick"/>
+     <Button x:Name="EmptySlotButton" DockPanel.Dock="Right" Content="Fill empty slot" FontSize="11" Padding="7,3" Margin="0,0,8,0" Click="EmptySlotClick" ToolTip="Place the selected window in available space without moving other windows"/>
      <Button x:Name="FooterUndoButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE7A7;" ToolTip="Undo placement (Ctrl+Z)" AutomationProperties.Name="Undo last placement" Click="UndoClick" Margin="0,0,8,0"/>
      <TextBlock x:Name="SelectionLabel" Text="Drag to place · Ctrl-click to select · Esc cancels" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis"/>
     </DockPanel>

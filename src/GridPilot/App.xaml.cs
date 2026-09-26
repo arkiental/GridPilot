@@ -22,7 +22,12 @@ public partial class App : Application
     private AppSettings settings = new();
     private GridPanel? panel;
     private SettingsWindow? settingsWindow;
+    private AutoArrangeWindow? arrangeWindow;
     private WindowTarget? lastTarget;
+    private readonly ExternalForegroundTracker externalForeground = new();
+    private PanelPlacementController? placementController;
+    private PanelPlacementController Placements => placementController ??= new(() => panel,
+        () => settings.CloseAfterPlacement, () => windows.CanUndo, () => windows.Busy);
     private Region? lastRegion;
     private bool paused, manuallyPaused, exiting;
     private Native.WinEventCallback? foregroundCallback;
@@ -48,10 +53,12 @@ public partial class App : Application
         UpdateTray();
         foregroundCallback = (_, _, hwnd, _, _, _, _) =>
         {
+            externalForeground.Capture(hwnd);
             if (WindowService.Capture(hwnd, out _) is { } target) lastTarget = target;
         };
         foregroundHook = Native.SetWinEventHook(3, 3, 0, foregroundCallback, 0, 0, 2);
         lastTarget = WindowService.CaptureForeground(out _);
+        externalForeground.Capture(Native.GetForegroundWindow());
         DispatcherUnhandledException += OnUnexpectedError;
         if (!e.Args.Contains("--background") || loaded.Warning is not null || shortcutError is not null)
             ShowSettings(loaded.Warning ?? shortcutError);
@@ -61,12 +68,17 @@ public partial class App : Application
     {
         var actions = new List<HotkeyAction> { new(config.Activation, "Open grid", () => TogglePanel(false)) };
         if (config.Undo is { } undo) actions.Add(new(undo, "Undo placement", () => _ = UndoAsync()));
+        if (config.PartialWorkspace.Shortcut is { } fill) actions.Add(new(fill, "Fill empty slot", () =>
+        {
+            if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
+            var target = panel is { IsActive: true } ? panel.Target : WindowService.CaptureForeground(out _);
+            if (target is null) Notify("Activate a resizable application window first."); else _ = FillEmptySlotAsync(target);
+        }));
         foreach (var preset in config.Presets.Where(p => p.Shortcut is not null))
             actions.Add(new(preset.Shortcut!, preset.Name, () =>
             {
                 // Freeze the selected target when a preset is invoked from an already-open grid.
-                var target = panel is not null ? panel.Target : WindowService.CaptureForeground(out _);
-                panel?.Dismiss(false);
+                var target = panel is { IsActive: true } ? panel.Target : WindowService.CaptureForeground(out _);
                 if (target is null) Notify("Activate a resizable application window first."); else _ = ApplyPresetAsync(target, preset);
             }));
         return actions;
@@ -75,7 +87,8 @@ public partial class App : Application
     private void TogglePanel(bool fromTray)
     {
         Diagnostics.Write($"Open grid requested. Busy={windows.Busy}; settingsActive={settingsWindow?.IsActive}; panel={panel is not null}");
-        if (windows.Busy || settingsWindow?.IsActive == true) return;
+        if (windows.Busy || arrangeWindow is not null) return;
+        if (settingsWindow is not null) { settingsWindow.Activate(); return; }
         if (panel is not null) { panel.Dismiss(true); return; }
         string? error = null;
         var target = fromTray ? lastTarget : WindowService.CaptureForeground(out error);
@@ -90,41 +103,101 @@ public partial class App : Application
         {
             var updated = settings.Clone(); updated.WindowSidebarOpen = open;
             return SaveSettings(updated);
-        });
+        }) { DismissOnDeactivate = settings.CloseAfterPlacement };
         panel = next;
         next.Closed += (_, _) => { if (panel == next) panel = null; };
-        next.PlacementRequested += (selected, region, device) => _ = PlaceAsync(selected, device, region);
+        next.PlacementRequested += (selected, region, device) => _ = PlaceAsync(selected, device, region, true);
+        next.BatchPlacementRequested += (display, placements, originals) => _ = ApplyPanelBatchAsync(next, display, placements, originals, next.PendingPlacementRegion);
+        next.EmptySlotRequested += (selected, device) => _ = FillEmptySlotAsync(selected, device);
         next.PresetRequested += (selected, preset, device) => _ = preset.Monitor == "current"
             ? PlaceAsync(selected, device, preset.Region) : ApplyPresetAsync(selected, preset);
         next.TargetChanged += selected => lastTarget = selected;
         next.SettingsRequested += ShowSettings;
-        next.UndoRequested += () => _ = UndoAsync();
+        next.UndoRequested += () => _ = UndoAsync(next);
+        next.AutoArrangeRequested += ShowAutoArrange;
         next.Show();
         Diagnostics.Write("Focus panel shown.");
+    }
+    private void ShowAutoArrange(DisplayMonitor monitor, IReadOnlyList<PreviewWindowEntry> capturedWindows)
+    {
+        var next = new AutoArrangeWindow(monitor, settings, proposed =>
+        {
+            // The sheet owns only arrangement preferences. Preserve any concurrent tray
+            // setting changes instead of replacing them with its opening-time snapshot.
+            var updated = settings.Clone(); updated.ArrangementPreferences = proposed.ArrangementPreferences;
+            updated.ArrangementAreas = proposed.ArrangementAreas; updated.ArrangementUiScale = proposed.ArrangementUiScale;
+            return SaveSettings(updated);
+        }, (_, _) => { }, capturedWindows, lastTarget, ArrangeAsync, settings.CloseAfterPlacement, UndoArrangementAsync, () => windows.CanUndo);
+        arrangeWindow = next;
+        hotkeys?.TryApply(Array.Empty<HotkeyAction>(), out _);
+        next.Closed += (_, _) => { arrangeWindow = null; RestoreHotkeys(); };
+        next.Show();
+    }
+    private async Task<PlacementResult> ArrangeAsync(DisplayMonitor monitor, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements)
+    {
+        var result = await windows.ArrangeAsync(monitor, placements);
+        UpdateTray(); return result;
+    }
+    private async Task<PlacementResult> UndoArrangementAsync()
+    {
+        var result = await windows.UndoAsync(); UpdateTray(); return result;
+    }
+    private async Task ApplyPanelBatchAsync(GridPanel owner, DisplayMonitor monitor,
+        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements,
+        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> originals, Region? originatingRegion)
+    {
+        await Placements.RunBatchAsync(owner, originatingRegion, () => windows.ArrangeAsync(monitor, placements, originals), region => lastRegion = region);
+        UpdateTray();
     }
     private async Task ApplyPresetAsync(WindowTarget target, PlacementPreset preset)
     {
         var monitors = MonitorService.GetAll();
-        if (monitors.Count == 0) { Notify("No display is available."); return; }
+        if (monitors.Count == 0)
+        {
+            await Placements.RunAsync(panel, null, () => Task.FromResult(new PlacementResult(false, "No display is available.")));
+            Notify("No display is available."); return;
+        }
         var monitor = MonitorService.Resolve(preset.Monitor, target.Handle, monitors);
+        if (panel is { } owner)
+        {
+            if (windows.Busy || owner.IsOperationPending) { Notify("A placement or preview update is already in progress."); return; }
+            if (owner.AdoptExternalTarget(target) is { } error) { Notify(error); return; }
+            owner.RequestPlacement(monitor.Device, preset.Region); return;
+        }
         await PlaceAsync(target, monitor.Device, preset.Region);
     }
-    private async Task PlaceAsync(WindowTarget target, string device, Region region)
+    private async Task FillEmptySlotAsync(WindowTarget target, string? selectedDevice = null)
     {
-        var result = await windows.PlaceAsync(target, device, region, settings.Gap);
+        if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
+        var owner = panel;
+        var result = await Placements.RunAsync(owner, target, async () =>
+        {
+            var plan = PartialWorkspacePlacement.Capture(target, selectedDevice, settings);
+            if (!plan.Success) return new(false, plan.Slot.Error ?? "No vacant slot is available.");
+            if (ReferenceEquals(panel, owner)) owner?.ShowExternalDestination(plan.Monitor!.Device);
+            var placed = await windows.ArrangeAsync(plan.Monitor!, [(target, plan.Slot.Bounds!.Value)], plan.Originals);
+            return placed.Success ? placed with { Message = $"Placed in workspace slot {plan.Slot.SlotNumber} of {plan.Slot.Capacity}; {plan.Slot.VacantCount - 1} vacant slots remain. Undo is available." } : placed;
+        }, selectedDevice is not null);
+        if (owner is null || !result.Success) Notify(result.Message ?? "The app does not fit this workspace slot.");
+        UpdateTray();
+    }
+    private async Task PlaceAsync(WindowTarget target, string device, Region region, bool ownsPendingRequest = false)
+    {
+        var owner = panel;
+        var result = await Placements.RunAsync(owner, target, () => windows.PlaceAsync(target, device, region, settings.Gap), ownsPendingRequest);
         if (result.Success)
         {
             lastRegion = region;
-            if (result.Message is { } adjustment) Notify(adjustment);
+            if (owner is null && result.Message is { } adjustment) Notify(adjustment);
         }
         else Notify(result.Message ?? "The placement could not be applied.");
         UpdateTray();
     }
-    private async Task UndoAsync()
+    private async Task UndoAsync(GridPanel? requestedOwner = null)
     {
-        panel?.Dismiss(false);
-        var result = await windows.UndoAsync();
-        if (!result.Success) Notify(result.Message ?? "Undo failed.");
+        var owner = panel;
+        var result = await Placements.RunAsync(requestedOwner ?? owner, null, windows.UndoAsync, requestedOwner is not null);
+        if (!result.Success && owner is null) Notify(result.Message ?? "Undo failed.");
         UpdateTray();
     }
 
@@ -132,6 +205,7 @@ public partial class App : Application
     private void ShowSettings(string? warning)
     {
         if (exiting) return;
+        if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
         panel?.Dismiss(false);
         if (settingsWindow is not null)
         {
@@ -146,10 +220,20 @@ public partial class App : Application
     }
     private void RestoreHotkeys()
     {
-        if (exiting || paused || hotkeys is null) return;
+        if (exiting || paused || hotkeys is null || arrangeWindow is not null) return;
         if (!hotkeys.TryApply(Actions(settings), out var error)) { paused = true; Notify(error!); UpdateTray(); }
     }
     private string? SaveSettings(AppSettings updated)
+    {
+        try { return SaveSettingsCore(updated); }
+        finally
+        {
+            // Save-only keeps the arrangement editor alive. Registration validation and
+            // rollback may install shortcuts; suspend them again on every exit path.
+            if (arrangeWindow is not null) hotkeys?.TryApply(Array.Empty<HotkeyAction>(), out _);
+        }
+    }
+    private string? SaveSettingsCore(AppSettings updated)
     {
         if (updated.Validate() is { } invalid) return invalid;
         if (!hotkeys!.TryApply(Actions(updated), out var error)) return error;
@@ -172,7 +256,7 @@ public partial class App : Application
     {
         panel?.Dismiss(true);
         if (!paused) { hotkeys!.TryApply(Array.Empty<HotkeyAction>(), out _); paused = manuallyPaused = true; }
-        else if (hotkeys!.TryApply(Actions(settings), out var error)) paused = manuallyPaused = false;
+        else if (hotkeys!.TryApply(arrangeWindow is null ? Actions(settings) : Array.Empty<HotkeyAction>(), out var error)) paused = manuallyPaused = false;
         else Notify(error!);
         UpdateTray();
     }
@@ -182,6 +266,11 @@ public partial class App : Application
         tray = new Forms.NotifyIcon { Icon = trayIcon, Visible = true, Text = "GridPilot" };
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Open grid", null, (_, _) => Dispatcher.BeginInvoke(() => TogglePanel(true)));
+        menu.Items.Add("Fill empty slot", null, (_, _) => Dispatcher.BeginInvoke(() =>
+        {
+            var target = externalForeground.ForTray(panel is { IsActive: true } ? panel.Target : null);
+            if (target is null) Notify("Activate a resizable application window first."); else _ = FillEmptySlotAsync(target);
+        }));
         undoItem = new Forms.ToolStripMenuItem("Undo last placement", null, (_, _) => Dispatcher.BeginInvoke(() => _ = UndoAsync())); menu.Items.Add(undoItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Settings…", null, (_, _) => Dispatcher.BeginInvoke(ShowSettings));
@@ -243,7 +332,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         exiting = true;
-        panel?.Dismiss(false); settingsWindow?.Close();
+        panel?.Dismiss(false); settingsWindow?.Close(); arrangeWindow?.Close();
         if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook);
         hotkeys?.Dispose();
         if (tray is not null) { tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); }

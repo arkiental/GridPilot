@@ -1,6 +1,12 @@
 # GridPilot
 
+**Consolidated build:** includes Auto Arrange, Shift-drag splits, native placement recovery, partial workspaces and visual shortcuts. See [download and testing steps](docs/TRY_THIS_BUILD.md), [main-grid reflow and swaps](docs/PLACEMENT_INTERACTIONS.md), [partial workspaces](docs/PARTIAL_WORKSPACE.md), and [visual shortcuts](docs/SHORTCUTS.md).
+
+**Auto arrange:** preview a Smart layout with a larger main workspace and smaller supporting apps, or choose Equal tiles. Live window previews fill the plan and two-column sidebar; select an app to edit its rules below the plan. Reroll feasible proposals, swap proposed frames, or draw saved app places and local subgrids. Accept explicitly, then keep arranging or Undo from the sheet. See [usage and constraints](docs/AUTO_ARRANGE.md).
+
 A native Windows 11 window-placement utility, inspired by Divvy's grid interaction with an independent interface. Built with C#, WPF, and Win32 on .NET 10.
+
+Auto arrange detects each window's reported minimum size before enabling Accept layout, without moving windows. Detection runs again whenever the editor opens, and the inspector shows the effective minimum. If an app enforces an additional size limit during placement, verified recovery revises the preview for review and acceptance.
 
 The Focus panel uses **Smoked Glass** in dark mode on compatible Windows 11 22H2+ desktops: a restrained charcoal shell around opaque desktop and window previews. Turn off **Settings → Smoked Glass panel** for **Matte Focus**, the opaque alternative. At panel opening or refresh, Matte Focus is also automatic when Windows transparency is off, high contrast or battery saver is active, the session is remote, hardware acceleration is insufficient, or the backdrop API is unavailable. Light mode remains opaque. The layout, orange placement controls and red selected-window marker are unchanged.
 
@@ -17,7 +23,7 @@ On first launch, review **Settings** and click **Save settings**. GridPilot stay
 1. Activate a resizable desktop application window.
 2. Press **Ctrl + Shift + Space** (configurable).
 3. Choose a destination display if needed.
-4. Drag across the screenshot grid in any direction. Orange shows the destination, both in the thumbnail and as an outline on the desktop.
+4. Drag across the screenshot grid in any direction. Orange outlines in the preview show the destination and any affected windows that will reflow.
 5. Release inside the grid to apply. **Escape**, clicking outside, or losing input capture cancels. Releasing a drag outside the grid clears the selection without moving the window.
 
 The initial target is captured before the panel opens. **Ctrl-click a window inside the preview** to select a different target without closing the panel. Its name, icon, and red glow update immediately, and every subsequent placement or preset acts on that selected window. Selecting never resizes anything. Escape closes the panel and focuses the selected application; committing also focuses it. Maximized windows restore on commit; undo can restore their maximized state.
@@ -30,20 +36,22 @@ Press **Ctrl + F** to search window titles and app names. Ctrl + Z while editing
 
 The **Focus** panel uses charcoal surfaces and orange controls. Its header displays the selected application's own icon and name. A **red glow** marks that window's original position in the screenshot, with one gentle half-second pulse on opening; Windows' reduced-animation preference disables the pulse. Orange always represents the proposed placement.
 
-Each activation takes fresh, low-resolution screenshots of the connected displays before the panel appears. They are frozen while the panel is open, preserve each display's aspect ratio, and remain only in memory. The taskbar is visible but dimmed and cannot be selected. The grid follows the usable work area precisely. Protected or unavailable capture content may appear black; if capture fails entirely the grid still works. Icons are loaded asynchronously from the window or Windows shell, with a generic fallback if the application exposes none.
+Each activation takes fresh, low-resolution screenshots of the connected displays before the panel appears. They remain still while you choose a placement and refresh after a placement or Undo completes. They preserve each display's aspect ratio and remain only in memory. The taskbar is visible but dimmed and cannot be selected. The grid follows the usable work area precisely. Protected or unavailable capture content may appear black; if capture fails entirely the grid still works. Icons are loaded asynchronously from the window or Windows shell, with a generic fallback if the application exposes none.
 
 **Left**, **Right**, and **Fill** apply directly to the selected display. **Thirds** opens three placements; **More** lists every saved placement and its shortcut. Click **6 × 6** to change columns and rows independently; changes persist immediately.
 
 Keyboard: arrows move the grid cursor; **Shift + arrows** extends a rectangle; **Enter** applies; **Escape** cancels. **Ctrl + Z** while the panel is open undoes the last placement. You can assign a global Undo shortcut in settings.
 
-Clicking one cell places the window there. If the app requires a larger minimum width or height, GridPilot uses the smallest size the app accepts, centers it on that cell, and keeps it within the display margins. It reports this adjustment instead of snapping back to the old position. Undo still restores the original size and position.
+Clicking one cell proposes that rectangle through the same overlap-reflow rules as a larger selection. If a known minimum or the remaining space makes the proposal infeasible, choose a larger region. Native refusal triggers verified recovery. Auto Arrange detects reported minimum sizes before proposing its layout; Undo restores the original positions and sizes after a successful placement.
 
 ## Preferences and placements
+
+**Fill empty slot** is a separate, deliberate placement mode. Configure **Settings → Partial workspace** to reserve an area, choose slot rows/columns and assign an optional global shortcut. The default upper-half 4 × 2 workspace leaves the lower half alone. The settings diagram shows current vacant/occupied slots; hover occupied slots for window names. The shortcut places the active app in the first vacant fitting slot without moving other apps. The tray provides the same action. See [partial workspace details](docs/PARTIAL_WORKSPACE.md).
 
 - Grid: independently configurable **1–12 columns and rows**, default **6 × 6**.
 - Gap: **0–64 logical pixels**, default **8**. Adjacent placements share one gap; the same gap appears at outer edges. Gaps scale with the destination display.
 - Twelve built-in proportional placements: halves, quarters, thirds, and fill available space.
-- Add, rename, edit, and remove placements in **Saved placements**. Drag on the editor's grid and optionally record a global shortcut. A new placement starts with your most recent successful selection when available.
+- Open **Settings → Shortcuts** to see each placement's name, global key combination and miniature grid. Select a row to rename it, record a shortcut or drag its grid selection; use **New** and **Delete** to manage the list. **Save settings** commits changes; **Cancel** discards them. A new placement starts with your most recent successful selection when available.
 - Destinations: current, next, previous, or a particular connected display. Next/previous follow left-to-right, then top-to-bottom display order. A disconnected saved display falls back to the target's current display. Display numbers in GridPilot follow this spatial order and may differ from Windows Settings.
 - In the grid panel, current-display preset buttons use the selected destination. Presets explicitly assigned to another destination retain that assignment.
 - Presets store proportions, so changing the grid does not alter existing saved placements.
@@ -59,7 +67,7 @@ Targets Windows 11 x64 (including x64 emulation where available). Standard resiz
 
 Windows and applications can enforce minimum sizes or special positioning rules. GridPilot verifies visible geometry and makes bounded corrections after DPI changes. A consistently larger minimum size is accommodated on the selected display; exact-sized selections remain exact. Unstable results, rejected movement, smaller maximum-constrained results, or a minimum too large to fit still restore the previous placement and report the problem. Undo is retained if restoration cannot be verified.
 
-Each placement fits one monitor's current usable area, excluding the taskbar. Monitor geometry is refreshed on every operation; display or work-area changes dismiss an open selection. This version does not automate whole workspaces, app launch rules, virtual desktops, or cloud sync.
+Each placement fits one monitor's current usable area, excluding the taskbar. Monitor geometry is refreshed on every operation; display or work-area changes dismiss an open selection. Auto Arrange applies a workspace only when you accept its proposal. App launch rules, virtual desktops and cloud sync are not supported.
 
 ## Build and verify
 
@@ -88,3 +96,5 @@ The publish script creates a self-contained folder and ZIP in `artifacts`. `Inst
 - `docs/VALIDATION.md`: verification results and remaining hardware coverage.
 
 Optional diagnostic switches: `--background` starts in the tray; `--diagnostics` records events in `%LOCALAPPDATA%\GridPilot\diagnostics.log`; `--ui-test` exposes the grid as a regular taskbar window for desktop automation. Normal operation does not write diagnostic traces. Unexpected errors are recorded in `errors.log` in the same folder. There is no network service, account, or telemetry.
+
+Auto Arrange supports **Shift-drag splitting**: drag onto a window and hold Shift to choose its left, right, top or bottom half. Review the preview, then Accept layout. See [Auto Arrange](docs/AUTO_ARRANGE.md).

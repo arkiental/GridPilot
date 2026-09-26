@@ -11,7 +11,7 @@ using System.Windows.Media;
 
 namespace GridPilot.Tests;
 
-internal static class Program
+internal static partial class Program
 {
     private static int assertions;
     private static void Assert(bool value, string message)
@@ -28,6 +28,16 @@ internal static class Program
     public static int Main(string[] args)
     {
         if (args.Contains("--fixture")) { Fixture(args); return 0; }
+        if (args.Length == 2 && args[0] == "--inspect-minimum" && uint.TryParse(args[1], out uint inspectedProcess))
+        {
+            foreach (var entry in PreviewWindows.Capture().Where(e => e.Target.ProcessId == inspectedProcess))
+            {
+                var display = MonitorService.ForWindow(entry.Target.Handle, MonitorService.GetAll());
+                var minimum = WindowMinimums.ReadAsync(entry.Target, display).GetAwaiter().GetResult();
+                Console.WriteLine($"HWND={entry.Target.Handle} PID={inspectedProcess}: detected minimum {minimum?.MinimumWidth} x {minimum?.MinimumHeight} physical pixels; window DPI={Native.GetDpiForWindow(entry.Target.Handle)}, display DPI={display.Dpi}.");
+            }
+            return 0;
+        }
         try
         {
             CoreTests();
@@ -44,7 +54,18 @@ internal static class Program
                 application.Resources.MergedDictionaries.Add((ResourceDictionary)System.Windows.Markup.XamlReader.Parse(resources.ToString()));
                 application.Startup += async (_, _) =>
                 {
-                    try { if (args.Contains("--sidebar")) await SidebarNativeTests(); else await NativeTests(); } catch (Exception ex) { failure = ex; }
+                    try
+                    {
+                        if (args.Contains("--shortcuts")) await ShortcutEditorTests();
+                        else if (args.Contains("--minimums")) await WindowMinimumNativeTests();
+                        else if (args.Contains("--panel-lifecycle")) await PanelPlacementControllerNativeTests();
+                        else if (args.Contains("--workspace")) await PartialWorkspaceNativeTests();
+                        else if (args.Contains("--interactions")) await PlacementInteractionNativeTests();
+                        else if (args.Contains("--arrangement")) await ArrangementNativeTests();
+                        else if (args.Contains("--sidebar")) await SidebarNativeTests();
+                        else { await NativeTests(); await PartialWorkspaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); }
+                    }
+                    catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
                 };
                 application.Run();
@@ -56,6 +77,11 @@ internal static class Program
     }
     private static void CoreTests()
     {
+        WindowMinimumTests();
+        ArrangementTests();
+        PartialWorkspaceTests();
+        PlacementInteractionTests();
+        PanelPlacementControllerTests().GetAwaiter().GetResult();
         var work = new PixelRect(-1920, -300, 0, 780);
         Assert(PlacementMath.Calculate(work, Region.Full, 8, 96) == new PixelRect(-1912, -292, -8, 772), "negative desktop origin");
         Assert(PlacementMath.Calculate(work, Region.Full, 8, 192) == new PixelRect(-1904, -284, -16, 764), "200% gap conversion");
@@ -240,6 +266,98 @@ internal static class Program
         }
     }
 
+    private static T EditorField<T>(SettingsWindow window, string name) =>
+        (T)typeof(SettingsWindow).GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(window)!;
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) yield return match;
+            foreach (var nested in Descendants<T>(child)) yield return nested;
+        }
+    }
+    private static void Click(SettingsWindow window, string label) => Descendants<Button>(window).Single(b => Equals(b.Content, label)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+    private static async Task ShortcutEditorTests()
+    {
+        Theme.Apply("Dark");
+        var initial = new AppSettings();
+        string temporary = Path.Combine(Path.GetTempPath(), "GridPilot-shortcuts-" + Guid.NewGuid().ToString("N"));
+        var store = new SettingsStore(temporary);
+        int saves = 0;
+        SettingsWindow Open(Func<AppSettings, string?> save)
+        {
+            var window = new SettingsWindow(initial, save, new Region(0, 0, .5, 1)) { ShowActivated = false, Width = 660 };
+            window.Show();
+            Descendants<TabControl>(window).Single().SelectedIndex = 1;
+            window.UpdateLayout();
+            return window;
+        }
+        SettingsWindow? window = null;
+        try
+        {
+            window = Open(settings => { saves++; store.Save(settings); return null; });
+            await Task.Delay(100);
+            var list = EditorField<ListBox>(window, "presets");
+            var row = (ShortcutRow)list.SelectedItem;
+            Assert(Descendants<TextBlock>(row).All(t => Equals(t.Foreground, Application.Current.FindResource("SelectionTextBrush"))), "selected name and shortcut use accessible selection foreground");
+            var name = EditorField<TextBox>(window, "name");
+            var shortcut = EditorField<ShortcutBox>(window, "presetShortcut");
+            var grid = EditorField<SelectionGrid>(window, "editorGrid");
+            name.Text = "Writing desk";
+            shortcut.Record(new Shortcut(3, 0x57));
+            Assert(ReferenceEquals(row, list.SelectedItem) && row.Preset.Name == "Writing desk", "editing keeps row identity and selection");
+            Assert(Descendants<TextBlock>(row).Any(t => t.Text == "Ctrl + Alt + W · Global"), "shortcut row updates immediately");
+            var source = PresentationSource.FromVisual(grid)!;
+            grid.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, 0, System.Windows.Input.Key.Right) { RoutedEvent = System.Windows.Input.Keyboard.KeyDownEvent });
+            Assert(row.Preset.Region == grid.Selection && row.Preset.Region != initial.Presets[0].Region, "keyboard grid editing updates draft");
+            var miniature = Descendants<FrameworkElement>(row).Single(e => e.GetType().Name == "Miniature");
+            Assert(Equals(miniature.GetType().GetProperty("Region", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(miniature), grid.Selection), "miniature receives edited region immediately");
+            var proportion = row.Preset.Region;
+            EditorField<TextBox>(window, "columns").Text = "9";
+            EditorField<TextBox>(window, "columns").RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+            Assert(row.Preset.Region == proportion && grid.Selection == proportion, "dimension changes preserve proportions");
+            EditorField<ComboBox>(window, "destination").SelectedIndex = 1;
+            shortcut.Record(initial.Activation);
+            Click(window, "Save settings");
+            Assert(saves == 0 && window.IsVisible && EditorField<TextBlock>(window, "error").Text.Length > 0, "duplicate shortcut prevents save");
+            shortcut.Record(new Shortcut(8, 65));
+            Click(window, "Save settings");
+            Assert(saves == 0 && shortcut.CaptureError is not null, "invalid recording prevents save");
+            list.SelectedIndex = 1;
+            Click(window, "Save settings");
+            Assert(saves == 0, "invalid recording on another row still prevents save");
+            list.SelectedIndex = 0;
+            Assert(shortcut.CaptureError is not null, "returning to invalid recording restores its error");
+            shortcut.Record(new Shortcut(3, 0x57));
+            Click(window, "New");
+            Assert(list.Items.Count == initial.Presets.Count + 1 && ((ShortcutRow)list.SelectedItem).Preset.Region == new Region(0, 0, .5, 1), "new placement inherits last region");
+            Click(window, "Delete");
+            Assert(list.Items.Count == initial.Presets.Count && list.SelectedItem is not null, "delete selects a surviving row");
+            list.SelectedIndex = 0; window.UpdateLayout();
+            Assert(miniature.ActualWidth == 76 && EditorField<StackPanel>(window, "editor").ActualWidth >= 240, "minimum width retains usable list and editor");
+            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(window);
+            var png = new System.Windows.Media.Imaging.PngBitmapEncoder(); png.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+            string screenshot = Path.Combine(Path.GetTempPath(), "GridPilot-shortcuts-660.png");
+            using (var stream = File.Create(screenshot)) png.Save(stream);
+            Console.WriteLine("Shortcuts screenshot: " + screenshot);
+            Click(window, "Save settings");
+            var saved = store.Load().Settings;
+            Assert(saves == 1 && saved.Presets[0].Name == "Writing desk" && saved.Presets[0].Shortcut == new Shortcut(3, 0x57) && saved.Presets[0].Region == proportion && saved.Presets[0].Monitor == "next", "save persists all edited placement fields");
+            Assert(initial.Presets[0].Name != "Writing desk", "original settings remain isolated");
+            window = Open(_ => { saves++; return null; });
+            EditorField<TextBox>(window, "name").Text = "Discard me";
+            Click(window, "Cancel");
+            Assert(saves == 1 && initial.Presets[0].Name != "Discard me", "cancel discards edits without callback");
+            window = Open(_ => "Shortcut is already registered by another app.");
+            Click(window, "Save settings");
+            Assert(window.IsVisible && EditorField<TextBlock>(window, "error").Text.Contains("another app"), "registration conflict retains editor and displays callback error");
+        }
+        finally { window?.Close(); if (Directory.Exists(temporary)) Directory.Delete(temporary, true); }
+        Console.WriteLine("Shortcuts: live rows, grid, add/delete, save/persistence, cancel and conflicts passed.");
+    }
+
     private static async Task SidebarNativeTests()
     {
         using var fixture = StartFixture("--sixteen");
@@ -321,7 +439,7 @@ internal static class Program
             search.Clear();
             WindowTarget? changed = null, applied = null;
             panel.TargetChanged += value => changed = value;
-            panel.PlacementRequested += (value, _, _) => applied = value;
+            panel.BatchPlacementRequested += (_, values, _) => applied = values[0].Target;
             var next = entries.Single(e => e.Target.Title.Contains("Sidebar 02"));
             panel.SelectSidebarWindow(next);
             Assert(panel.Target == next.Target && changed == next.Target, "sidebar selection publishes the explicit HWND target");
@@ -331,8 +449,12 @@ internal static class Program
             panel.SelectSidebarWindow(selected);
             Assert(panel.Target == next.Target, "newly blocked thumbnail cannot replace the selected target");
             TestEnableWindow(selected.Target.Handle, true);
+            typeof(GridPanel).GetField("capturedWindows", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(panel, new[] { next });
+            panel.UpdateLayout(); await Task.Delay(60);
             panel.Commit(new Region(0, 0, .5, 1));
-            Assert(applied == next.Target && panel.ThumbnailCount == 0, "commit uses sidebar target and disposes thumbnails");
+            Assert(applied == next.Target && panel.IsVisible, "commit uses sidebar target and keeps the panel open");
+            panel.UpdateLayout(); await Task.Delay(60);
+            Assert(panel.ThumbnailCount > 0, "persistent panel retains usable native previews");
         }
         finally { panel?.Dismiss(false); if (!fixture.HasExited) { fixture.Kill(); await fixture.WaitForExitAsync(); } }
         Console.WriteLine("Sidebar: 16 windows, search, real occluded DWM pixels, collapse/filter disposal, selection and placement routing passed.");
@@ -407,6 +529,9 @@ internal static class Program
         finally { if (!fixedFixture.HasExited) { fixedFixture.Kill(); await fixedFixture.WaitForExitAsync(); } }
 
         await MinimumPlacementTests();
+        await WindowMinimumNativeTests();
+        await ArrangementNativeTests();
+        await PlacementInteractionNativeTests();
         await NativePickingTests();
         await SidebarNativeTests();
         Console.WriteLine("Native: real window movement, visible borders, undo, maximized state, constraints, display fallback and hotkeys passed.");
@@ -543,11 +668,12 @@ internal static class Program
             {
                 WindowTarget? changed = null, applied = null;
                 panel.TargetChanged += value => changed = value;
-                panel.PlacementRequested += (value, _, _) => applied = value;
+                panel.BatchPlacementRequested += (_, values, _) => applied = values[0].Target;
                 panel.PickWindow(new Point(20, 20), hitX, hitY, false);
                 Assert(panel.Target.Handle == front.Target.Handle && changed?.Handle == front.Target.Handle, "Ctrl selection changes panel target and publishes new target");
                 var grid = (SelectionGrid)panel.FindName("GridControl");
                 Assert(grid.Selection is null && grid.TargetBounds == front.Bounds, "target switch clears placement and moves red marker to selected snapshot bounds");
+                typeof(GridPanel).GetField("capturedWindows", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(panel, new[] { front });
                 panel.Commit(new Region(0, 0, .5, 1));
                 Assert(applied?.Handle == front.Target.Handle, "grid commit dispatches selected target rather than originally captured target");
             }
@@ -556,8 +682,9 @@ internal static class Program
             try
             {
                 WindowTarget? applied = null;
-                presets.PresetRequested += (value, _, _) => applied = value;
+                presets.BatchPlacementRequested += (_, values, _) => applied = values[0].Target;
                 presets.PickWindow(new Point(20, 20), hitX, hitY, false);
+                typeof(GridPanel).GetField("capturedWindows", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(presets, new[] { front });
                 presets.ApplySavedPreset(new PlacementPreset());
                 Assert(applied?.Handle == front.Target.Handle, "saved preset dispatches selected target");
             }
@@ -605,6 +732,7 @@ internal static class Program
     }
     private static void Fixture(string[] args)
     {
+        if (args.Contains("--dpi-unaware")) Native.SetThreadDpiAwarenessContext(new nint(-1));
         bool fixedSize = args.Contains("--fixed"), pair = args.Contains("--pair");
         bool minWidth = args.Contains("--constrained") || args.Contains("--width-only") || args.Contains("--refuse-position");
         bool minHeight = args.Contains("--constrained") || args.Contains("--height-only") || args.Contains("--refuse-position");
@@ -650,7 +778,16 @@ internal static class Program
                 return 0;
             });
         };
-        if (args.Contains("--delayed-resize")) window.Loaded += (_, _) =>
+        if (args.Contains("--slow-minimum")) window.Loaded += (_, _) =>
+        {
+            bool armed = true;
+            HwndSource.FromHwnd(new WindowInteropHelper(window).Handle)!.AddHook((nint hwnd, int message, nint wParam, nint lParam, ref bool handled) =>
+            {
+                if (message == 0x24 && armed) { armed = false; Thread.Sleep(900); }
+                return 0;
+            });
+        };
+        if (args.Contains("--delayed-resize") || args.Contains("--slow-batch-resize") || args.Contains("--very-slow-batch-resize")) window.Loaded += (_, _) =>
         {
             var handle = new WindowInteropHelper(window).Handle;
             Native.GetWindowRect(handle, out var original);
@@ -661,7 +798,7 @@ internal static class Program
                     System.Runtime.InteropServices.Marshal.ReadInt32(lParam, IntPtr.Size * 2 + 8) < original.Pixels.Width - 50)
                 {
                     armed = false;
-                    Thread.Sleep(375); // Emulate a busy but responsive application's first resize handler.
+                    Thread.Sleep(args.Contains("--very-slow-batch-resize") ? 6000 : args.Contains("--slow-batch-resize") ? 1000 : 375); // Emulate a busy but responsive application's first resize handler.
                     window.Dispatcher.BeginInvoke(() => window.Title = "GridPilot test window - Delay exercised");
                 }
                 return 0;

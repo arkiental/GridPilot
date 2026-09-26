@@ -32,6 +32,12 @@ public sealed class AppSettings
     public string Theme { get; set; } = "Dark";
     public bool SmokedGlass { get; set; } = true;
     public bool WindowSidebarOpen { get; set; } = true;
+    public bool CloseAfterPlacement { get; set; }
+    private PartialWorkspaceSettings partialWorkspace = new();
+    public PartialWorkspaceSettings PartialWorkspace { get => partialWorkspace; set => partialWorkspace = value ?? new(); }
+    public List<ArrangementPreference> ArrangementPreferences { get; set; } = [];
+    public List<ArrangementArea> ArrangementAreas { get; set; } = [];
+    public double ArrangementUiScale { get; set; }
     public List<PlacementPreset> Presets { get; set; } = Defaults();
 
     public AppSettings Clone() => JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(this))!;
@@ -39,15 +45,41 @@ public sealed class AppSettings
     public string? Validate()
     {
         if (Version != 1) return "This settings file was made by a different version of GridPilot.";
+        if (!double.IsFinite(ArrangementUiScale) || (ArrangementUiScale != 0 && ArrangementUiScale is < 1 or > 2.5)) return "Arrangement interface scale must be Auto or 100–250%.";
+        if (ArrangementAreas is null || ArrangementAreas.Count > 32 || ArrangementAreas.Any(a => a is null || !a.IsValid) || ArrangementAreas.Select(a => a.Id).Distinct().Count() != ArrangementAreas.Count)
+            return "Automatic arrangement needs valid, unique subgrid areas (up to 32).";
+        if (ArrangementPreferences is null || ArrangementPreferences.Count > 256 || ArrangementPreferences.Any(p => p is null || !p.IsValid) ||
+            ArrangementPreferences.Select(p => p.AppId).Distinct(StringComparer.OrdinalIgnoreCase).Count() != ArrangementPreferences.Count)
+            return "Automatic arrangement needs valid, unique application preferences (up to 256).";
+        foreach (var place in ArrangementPreferences.SelectMany(p => p.Places).Where(p => p.AreaId is not null))
+        {
+            var area = ArrangementAreas.FirstOrDefault(a => a.Id == place.AreaId && string.Equals(a.Monitor, place.Monitor, StringComparison.OrdinalIgnoreCase));
+            if (area is null || !SmartArrangement.Contains(area.Region, place.Region)) return "A saved app place must be inside its subgrid area.";
+        }
+        for (int a = 0; a < ArrangementAreas.Count; a++)
+        for (int b = a + 1; b < ArrangementAreas.Count; b++)
+            if (string.Equals(ArrangementAreas[a].Monitor, ArrangementAreas[b].Monitor, StringComparison.OrdinalIgnoreCase) && SmartArrangement.Overlaps(ArrangementAreas[a].Region, ArrangementAreas[b].Region))
+                return "Saved subgrid areas must not overlap.";
+        var places = ArrangementPreferences.SelectMany(p => p.Places).ToArray();
+        for (int a = 0; a < places.Length; a++)
+        {
+            if (ArrangementAreas.Any(area => area.Id != places[a].AreaId && string.Equals(area.Monitor, places[a].Monitor, StringComparison.OrdinalIgnoreCase) && SmartArrangement.Overlaps(area.Region, places[a].Region)))
+                return "A saved place crosses another reserved area.";
+            for (int b = a + 1; b < places.Length; b++)
+                if (string.Equals(places[a].Monitor, places[b].Monitor, StringComparison.OrdinalIgnoreCase) && SmartArrangement.Overlaps(places[a].Region, places[b].Region))
+                    return "Saved app places on a display must not overlap.";
+        }
         if (Columns is < 1 or > 12 || Rows is < 1 or > 12) return "Rows and columns must be between 1 and 12.";
         if (!double.IsFinite(Gap) || Gap is < 0 or > 64) return "Gap must be between 0 and 64.";
         if (Theme is not ("System" or "Light" or "Dark")) return "Choose System, Light, or Dark appearance.";
         if (Activation is null) return "An activation shortcut is required.";
         if (Activation.Validate() is { } error) return error;
         if (Undo?.Validate() is { } undoError) return undoError;
+        if (PartialWorkspace.Validate() is { } workspaceError) return workspaceError;
         if (Presets is null || Presets.Count > 100) return "Keep at most 100 saved placements.";
         var shortcuts = new HashSet<Shortcut> { Activation };
         if (Undo is not null && !shortcuts.Add(Undo)) return "Undo and activation need different shortcuts.";
+        if (PartialWorkspace.Shortcut is { } fillShortcut && !shortcuts.Add(fillShortcut)) return "Fill empty slot needs a different shortcut from activation and Undo.";
         var ids = new HashSet<string>();
         foreach (var preset in Presets)
         {

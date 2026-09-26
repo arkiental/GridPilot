@@ -12,7 +12,7 @@ public partial class GridPanel : Window
     private readonly PreviewWindow preview = new();
     private readonly AppSettings settings;
     private WindowTarget target;
-    private readonly IReadOnlyList<PreviewWindowEntry> capturedWindows;
+    private IReadOnlyList<PreviewWindowEntry> capturedWindows;
     private IReadOnlyList<PreviewWindowEntry> overlap = Array.Empty<PreviewWindowEntry>();
     private readonly WindowPickCycle pickCycle = new();
     private readonly Dictionary<(nint, uint), Task<AppVisual>> visualTasks = new();
@@ -25,12 +25,13 @@ public partial class GridPanel : Window
     internal PanelBackdrop Backdrop { get; }
     private DisplayMonitor panelMonitor = null!;
     public WindowTarget Target => target;
-    internal bool DismissOnDeactivate { get; set; } = true;
+    internal bool DismissOnDeactivate { get; set; }
     public event Action<WindowTarget, Region, string>? PlacementRequested;
     public event Action<WindowTarget, PlacementPreset, string>? PresetRequested;
     public event Action<WindowTarget>? TargetChanged;
     public event Action? SettingsRequested;
     public event Action? UndoRequested;
+    internal event Action<DisplayMonitor, IReadOnlyList<PreviewWindowEntry>>? AutoArrangeRequested;
 
     public GridPanel(WindowTarget target, AppSettings settings, bool canUndo, Func<int, int, string?> saveGrid, Func<bool, string?>? saveSidebar = null)
     {
@@ -51,6 +52,7 @@ public partial class GridPanel : Window
         try { GridControl.TargetBounds = capturedWindows.FirstOrDefault(w => w.Target.Handle == target.Handle && w.Target.ProcessId == target.ProcessId)?.Bounds ?? WindowService.VisibleBounds(target.Handle); } catch (InvalidOperationException) { }
         GridSize.Text = $"{settings.Columns} × {settings.Rows}";
         UndoButton.IsEnabled = FooterUndoButton.IsEnabled = canUndo;
+        InitializeInteractions();
         GridControl.SelectionChanged += ShowPreview;
         GridControl.Committed += Commit;
         GridControl.WindowPickStarted += () => { preview.Hide(); SelectionLabel.Text = "Ctrl-click a window to select it"; };
@@ -125,6 +127,8 @@ public partial class GridPanel : Window
     }
     private void SelectWindow(PreviewWindowEntry entry, int index)
     {
+        entry = capturedWindows.FirstOrDefault(e => Same(e.Target, entry.Target)) ?? entry;
+        cachedSelection = null; cachedPlan = null;
         if (PreviewWindows.Validate(entry) is { } error)
         {
             SelectionLabel.Text = error;
@@ -201,7 +205,7 @@ public partial class GridPanel : Window
             if (sidebarOpen) { WindowSearch.Focus(); WindowSearch.SelectAll(); }
             return true;
         }
-        if (key == Key.Z && modifiers == ModifierKeys.Control && !WindowSearch.IsKeyboardFocusWithin) { Dismiss(false); UndoRequested?.Invoke(); return true; }
+        if (key == Key.Z && modifiers == ModifierKeys.Control && !WindowSearch.IsKeyboardFocusWithin) { if (placementPending) return true; BeginPlacement(); UndoRequested?.Invoke(); return true; }
         return false;
     }
     private void PositionNearPointer()
@@ -222,22 +226,18 @@ public partial class GridPanel : Window
     }
     private void ShowPreview(Region region)
     {
-        if (closing || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
+        if (closing || placementPending || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
         ClearOverlap();
-        try
-        {
-            var rectangle = PlacementMath.Calculate(monitor.Work, region, settings.Gap, monitor.Dpi);
-            preview.ShowRectangle(rectangle, handle);
-            SelectionLabel.Text = $"{rectangle.Width} × {rectangle.Height} px  ·  Release to place  ·  Esc cancels";
-        }
-        catch (ArgumentException ex) { preview.Hide(); SelectionLabel.Text = ex.Message; }
+        var plan = BuildReflow(monitor, region);
+        ShowInteractionPlan(monitor, plan);
     }
     internal void Commit(Region region)
     {
-        if (MonitorPicker.SelectedItem is not DisplayMonitor monitor || closing) return;
-        var selected = target;
-        Dismiss(false);
-        PlacementRequested?.Invoke(selected, region, monitor.Device);
+        if (MonitorPicker.SelectedItem is not DisplayMonitor monitor || closing || placementPending) return;
+        PendingPlacementRegion = region;
+        var plan = BuildReflow(monitor, region);
+        ShowInteractionPlan(monitor, plan);
+        if (plan.Success) SubmitPlan(monitor);
     }
     private void MonitorChanged(object sender, SelectionChangedEventArgs e)
     {
@@ -245,6 +245,7 @@ public partial class GridPanel : Window
         preview.Hide();
         ClearOverlap();
         GridControl.Desktop = snapshots[monitor.Device];
+        UpdateInteractionFrames();
         SelectionLabel.Text = Hint;
         MonitorPicker.ToolTip = monitor.Label;
         if (ready) { PositionNearPointer(); GridControl.PulseTarget(); }
@@ -267,6 +268,7 @@ public partial class GridPanel : Window
             return;
         }
         GridError.Text = "";
+        cachedSelection = null; cachedPlan = null;
         settings.Columns = columns; settings.Rows = rows;
         GridControl.Columns = columns; GridControl.Rows = rows;
         GridSize.Text = $"{columns} × {rows}";
@@ -306,10 +308,10 @@ public partial class GridPanel : Window
     }
     internal void ApplySavedPreset(PlacementPreset preset)
     {
-        if (closing || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
-        var selected = target;
-        Dismiss(false);
-        PresetRequested?.Invoke(selected, preset, monitor.Device);
+        if (closing || placementPending || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
+        PresetsPopup.IsOpen = false;
+        if (preset.Monitor == "current") { Commit(preset.Region); return; }
+        PresetRequested?.Invoke(target, preset, monitor.Device);
     }
     private void PopupClosed(object? sender, EventArgs e)
     {
@@ -318,7 +320,7 @@ public partial class GridPanel : Window
     }
     private void DismissIfOutside()
     {
-        if (closing || IsActive || !DismissOnDeactivate) return;
+        if (closing || IsActive || !DismissOnDeactivate || placementPending) return;
         Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out var process);
         // Owned popup HWNDs may temporarily have focus. A different application's HWND never does.
         if (process != Environment.ProcessId) { Diagnostics.Write($"Focus moved to process {process}; dismissing grid."); Dismiss(false); }
@@ -333,6 +335,11 @@ public partial class GridPanel : Window
         new PlacementPreset { Name = "Right third", Region = new(2d / 3, 0, 1, 1) }
     }, false);
     private void MoreClick(object sender, RoutedEventArgs e) => OpenPresets(MoreButton, settings.Presets, true);
+    private void AutoArrangeClick(object sender, RoutedEventArgs e)
+    {
+        if (MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
+        Dismiss(false); AutoArrangeRequested?.Invoke(monitor, capturedWindows);
+    }
     public void Dismiss(bool restoreFocus)
     {
         if (closing) return;
@@ -345,5 +352,5 @@ public partial class GridPanel : Window
     }
     private void CancelClick(object sender, RoutedEventArgs e) => Dismiss(true);
     private void SettingsClick(object sender, RoutedEventArgs e) { Dismiss(false); SettingsRequested?.Invoke(); }
-    private void UndoClick(object sender, RoutedEventArgs e) { Dismiss(false); UndoRequested?.Invoke(); }
+    private void UndoClick(object sender, RoutedEventArgs e) { if (placementPending) return; BeginPlacement(); UndoRequested?.Invoke(); }
 }
