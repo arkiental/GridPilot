@@ -46,6 +46,12 @@ internal sealed class ShortcutRow : ListBoxItem
     }
     private sealed class Miniature : FrameworkElement
     {
+        internal Miniature()
+        {
+            Loaded += (_, _) => Theme.Changed += RefreshTheme;
+            Unloaded += (_, _) => Theme.Changed -= RefreshTheme;
+        }
+        private void RefreshTheme() => InvalidateVisual();
         internal Region Region { get; set; }
         internal int Columns { get; set; }
         internal int Rows { get; set; }
