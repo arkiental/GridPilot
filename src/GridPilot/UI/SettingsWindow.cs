@@ -25,7 +25,7 @@ public sealed class SettingsWindow : Window
     private readonly CheckBox startAtLogin = new() { Content = "Launch GridPilot when I sign in", Margin = new Thickness(0, 12, 0, 0) };
     private readonly CheckBox smokedGlass = new() { Content = "Smoked Glass panel", Margin = new Thickness(0, 0, 0, 4) };
     private readonly ComboBox theme = new(), destination = new();
-    private readonly ListBox presets = new() { MinWidth = 210, DisplayMemberPath = "Name" };
+    private readonly ListBox presets = new() { MinWidth = 250 };
     private readonly SelectionGrid editorGrid = new() { Height = 205, ApplyOnRelease = false };
     private readonly TextBlock error = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 12, 0) };
     private readonly TextBlock editorSummary = new() { FontSize = 12, Margin = new Thickness(0, 8, 0, 0) };
@@ -33,6 +33,7 @@ public sealed class SettingsWindow : Window
     private readonly Region? lastRegion;
     private PlacementPreset? selected;
     private bool loading;
+    private readonly Dictionary<PlacementPreset, string> captureErrors = new();
     private sealed record MonitorChoice(string Value, string Label) { public override string ToString() => Label; }
 
     public SettingsWindow(AppSettings current, Func<AppSettings, string?> save, Region? lastRegion, string? warning = null)
@@ -65,7 +66,7 @@ public sealed class SettingsWindow : Window
 
         var tabs = new TabControl { BorderThickness = new Thickness(0), Background = Brushes.Transparent };
         tabs.Items.Add(new TabItem { Header = "  General  ", Content = GeneralPage() });
-        tabs.Items.Add(new TabItem { Header = "  Saved placements  ", Content = PresetsPage() });
+        tabs.Items.Add(new TabItem { Header = "  Shortcuts  ", Content = PresetsPage() });
         tabs.Items.Add(new TabItem { Header = "  Partial workspace  ", Content = WorkspacePage() });
         root.Children.Add(tabs); Content = root;
         LoadGeneral(); ReloadPresets();
@@ -202,19 +203,23 @@ public sealed class SettingsWindow : Window
     private FrameworkElement PresetsPage()
     {
         var layout = new Grid { Margin = new Thickness(8, 22, 8, 0) };
-        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(240) });
         layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        layout.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star), MinWidth = 260 });
         var left = new DockPanel { Margin = new Thickness(0, 0, 20, 0) };
         var actions = new WrapPanel { Margin = new Thickness(0, 10, 0, 0) };
-        actions.Children.Add(Button("Add", (_, _) => AddPreset()));
-        actions.Children.Add(Button("Remove", (_, _) =>
+        actions.Children.Add(Button("New", (_, _) => AddPreset()));
+        actions.Children.Add(Button("Delete", (_, _) =>
         {
             if (selected is null) return;
-            draft.Presets.Remove(selected); selected = null; ReloadPresets();
+            int index = presets.SelectedIndex;
+            captureErrors.Remove(selected); draft.Presets.Remove(selected); presets.Items.RemoveAt(index);
+            if (presets.Items.Count > 0) presets.SelectedIndex = Math.Min(index, presets.Items.Count - 1); else LoadEditor(null);
         }));
         DockPanel.SetDock(actions, Dock.Bottom); left.Children.Add(actions);
+        ScrollViewer.SetHorizontalScrollBarVisibility(presets, ScrollBarVisibility.Disabled);
+        AutomationProperties.SetName(presets, "Saved shortcuts and placements");
         left.Children.Add(presets); layout.Children.Add(left);
-        presets.SelectionChanged += (_, _) => LoadEditor(presets.SelectedItem as PlacementPreset);
+        presets.SelectionChanged += (_, _) => LoadEditor((presets.SelectedItem as ShortcutRow)?.Preset);
         editor.Children.Add(Field("Placement name", name));
         editor.Children.Add(Field("Global shortcut · optional", presetShortcut, "Applies immediately to the active window. Backspace clears it."));
         var choices = new List<MonitorChoice> { new("current", "Window’s current display"), new("next", "Next display"), new("previous", "Previous display") };
@@ -228,11 +233,17 @@ public sealed class SettingsWindow : Window
         editor.Children.Add(Text("Placements keep their proportions when you change the grid or connect a different-sized display.", 11, "MutedBrush"));
         var scroll = new ScrollViewer { Content = editor, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
         Grid.SetColumn(scroll, 1); layout.Children.Add(scroll);
-        name.TextChanged += (_, _) => { if (!loading && selected is not null) selected.Name = name.Text; };
-        name.LostFocus += (_, _) => presets.Items.Refresh();
-        presetShortcut.Changed += () => { if (!loading && selected is not null) selected.Shortcut = presetShortcut.Value; };
+        name.TextChanged += (_, _) => { if (!loading && selected is not null) { selected.Name = name.Text; RefreshRows(); } };
+        presetShortcut.Changed += () =>
+        {
+            if (loading || selected is null) return;
+            if (presetShortcut.CaptureError is { } message) captureErrors[selected] = message;
+            else { captureErrors.Remove(selected); selected.Shortcut = presetShortcut.Value; }
+            error.Text = presetShortcut.CaptureError ?? "";
+            RefreshRows();
+        };
         destination.SelectionChanged += (_, _) => { if (!loading && selected is not null && destination.SelectedItem is MonitorChoice choice) selected.Monitor = choice.Value; };
-        editorGrid.SelectionChanged += region => { if (!loading && selected is not null) { selected.Region = region; UpdateSummary(region); } };
+        editorGrid.SelectionChanged += region => { if (!loading && selected is not null) { selected.Region = region; UpdateSummary(region); RefreshRows(); } };
         columns.LostFocus += (_, _) => UpdateEditorDimensions(); rows.LostFocus += (_, _) => UpdateEditorDimensions();
         return layout;
     }
@@ -245,25 +256,32 @@ public sealed class SettingsWindow : Window
     }
     private void ReloadPresets()
     {
-        presets.ItemsSource = null; presets.ItemsSource = draft.Presets;
+        presets.Items.Clear();
+        foreach (var preset in draft.Presets) presets.Items.Add(new ShortcutRow(preset));
         if (draft.Presets.Count > 0) presets.SelectedIndex = 0; else LoadEditor(null);
     }
     private void AddPreset()
     {
         if (draft.Presets.Count >= 100) { error.Text = "Keep at most 100 saved placements."; return; }
         var preset = new PlacementPreset { Name = "New placement", Region = lastRegion ?? Region.Full };
-        draft.Presets.Add(preset); presets.Items.Refresh(); presets.SelectedItem = preset; name.Focus(); name.SelectAll();
+        draft.Presets.Add(preset); var row = new ShortcutRow(preset); presets.Items.Add(row); presets.SelectedItem = row; presets.ScrollIntoView(row); name.Focus(); name.SelectAll();
     }
     private void UpdateEditorDimensions()
     {
         editorGrid.Columns = int.TryParse(columns.Text, out int c) && c is >= 1 and <= 12 ? c : draft.Columns;
         editorGrid.Rows = int.TryParse(rows.Text, out int r) && r is >= 1 and <= 12 ? r : draft.Rows;
         editorGrid.Selection = selected?.Region;
+        RefreshRows();
+    }
+    private void RefreshRows()
+    {
+        foreach (ShortcutRow row in presets.Items) row.Refresh(editorGrid.Columns, editorGrid.Rows);
     }
     private void LoadEditor(PlacementPreset? preset)
     {
         loading = true; selected = preset; editor.IsEnabled = preset is not null;
         name.Text = preset?.Name ?? ""; presetShortcut.Set(preset?.Shortcut);
+        if (preset is not null && captureErrors.TryGetValue(preset, out var captureError)) presetShortcut.RestoreError(captureError);
         destination.SelectedItem = ((IEnumerable<MonitorChoice>)destination.ItemsSource).FirstOrDefault(c => c.Value == preset?.Monitor);
         UpdateEditorDimensions(); if (preset is not null) UpdateSummary(preset.Region); else editorSummary.Text = "Add a placement to begin.";
         loading = false;
@@ -271,6 +289,7 @@ public sealed class SettingsWindow : Window
     private void UpdateSummary(Region region) => editorSummary.Text = $"Width {(region.Right - region.Left):P0} · height {(region.Bottom - region.Top):P0} · left {region.Left:P0} · top {region.Top:P0}";
     private void SaveClick(object sender, RoutedEventArgs e)
     {
+        if (captureErrors.FirstOrDefault() is { Key: not null } invalid) { error.Text = $"{invalid.Key.Name}: {invalid.Value}"; return; }
         if ((activation.CaptureError ?? undo.CaptureError ?? presetShortcut.CaptureError ?? fillShortcut.CaptureError) is { } captureError) { error.Text = captureError; return; }
         if (!int.TryParse(columns.Text, out int c) || !int.TryParse(rows.Text, out int r)) { error.Text = "Enter whole numbers for rows and columns."; return; }
         if (!double.TryParse(gap.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double g)) { error.Text = "Enter a number for the gap."; return; }

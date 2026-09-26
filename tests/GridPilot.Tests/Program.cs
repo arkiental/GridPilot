@@ -56,13 +56,14 @@ internal static partial class Program
                 {
                     try
                     {
-                        if (args.Contains("--minimums")) await WindowMinimumNativeTests();
+                        if (args.Contains("--shortcuts")) await ShortcutEditorTests();
+                        else if (args.Contains("--minimums")) await WindowMinimumNativeTests();
                         else if (args.Contains("--panel-lifecycle")) await PanelPlacementControllerNativeTests();
                         else if (args.Contains("--workspace")) await PartialWorkspaceNativeTests();
                         else if (args.Contains("--interactions")) await PlacementInteractionNativeTests();
                         else if (args.Contains("--arrangement")) await ArrangementNativeTests();
                         else if (args.Contains("--sidebar")) await SidebarNativeTests();
-                        else { await NativeTests(); await PartialWorkspaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); }
+                        else { await NativeTests(); await PartialWorkspaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); }
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
@@ -263,6 +264,98 @@ internal static partial class Program
             var fit = WindowThumbnail.Fit(size.Item1, size.Item2, new Rect(20 * dpi, 30 * dpi, 120 * dpi, 66 * dpi), new Rect(0, 0, 4000, 4000));
             Assert(fit is { } value && value.Destination.Left >= 20 * dpi && value.Destination.Top >= 30 * dpi && value.Destination.Right <= 140 * dpi && value.Destination.Bottom <= 96 * dpi, "scaled thumbnail stays inside image well");
         }
+    }
+
+    private static T EditorField<T>(SettingsWindow window, string name) =>
+        (T)typeof(SettingsWindow).GetField(name, System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(window)!;
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (int i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match) yield return match;
+            foreach (var nested in Descendants<T>(child)) yield return nested;
+        }
+    }
+    private static void Click(SettingsWindow window, string label) => Descendants<Button>(window).Single(b => Equals(b.Content, label)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+    private static async Task ShortcutEditorTests()
+    {
+        Theme.Apply("Dark");
+        var initial = new AppSettings();
+        string temporary = Path.Combine(Path.GetTempPath(), "GridPilot-shortcuts-" + Guid.NewGuid().ToString("N"));
+        var store = new SettingsStore(temporary);
+        int saves = 0;
+        SettingsWindow Open(Func<AppSettings, string?> save)
+        {
+            var window = new SettingsWindow(initial, save, new Region(0, 0, .5, 1)) { ShowActivated = false, Width = 660 };
+            window.Show();
+            Descendants<TabControl>(window).Single().SelectedIndex = 1;
+            window.UpdateLayout();
+            return window;
+        }
+        SettingsWindow? window = null;
+        try
+        {
+            window = Open(settings => { saves++; store.Save(settings); return null; });
+            await Task.Delay(100);
+            var list = EditorField<ListBox>(window, "presets");
+            var row = (ShortcutRow)list.SelectedItem;
+            Assert(Descendants<TextBlock>(row).All(t => Equals(t.Foreground, Application.Current.FindResource("SelectionTextBrush"))), "selected name and shortcut use accessible selection foreground");
+            var name = EditorField<TextBox>(window, "name");
+            var shortcut = EditorField<ShortcutBox>(window, "presetShortcut");
+            var grid = EditorField<SelectionGrid>(window, "editorGrid");
+            name.Text = "Writing desk";
+            shortcut.Record(new Shortcut(3, 0x57));
+            Assert(ReferenceEquals(row, list.SelectedItem) && row.Preset.Name == "Writing desk", "editing keeps row identity and selection");
+            Assert(Descendants<TextBlock>(row).Any(t => t.Text == "Ctrl + Alt + W · Global"), "shortcut row updates immediately");
+            var source = PresentationSource.FromVisual(grid)!;
+            grid.RaiseEvent(new System.Windows.Input.KeyEventArgs(System.Windows.Input.Keyboard.PrimaryDevice, source, 0, System.Windows.Input.Key.Right) { RoutedEvent = System.Windows.Input.Keyboard.KeyDownEvent });
+            Assert(row.Preset.Region == grid.Selection && row.Preset.Region != initial.Presets[0].Region, "keyboard grid editing updates draft");
+            var miniature = Descendants<FrameworkElement>(row).Single(e => e.GetType().Name == "Miniature");
+            Assert(Equals(miniature.GetType().GetProperty("Region", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(miniature), grid.Selection), "miniature receives edited region immediately");
+            var proportion = row.Preset.Region;
+            EditorField<TextBox>(window, "columns").Text = "9";
+            EditorField<TextBox>(window, "columns").RaiseEvent(new RoutedEventArgs(UIElement.LostFocusEvent));
+            Assert(row.Preset.Region == proportion && grid.Selection == proportion, "dimension changes preserve proportions");
+            EditorField<ComboBox>(window, "destination").SelectedIndex = 1;
+            shortcut.Record(initial.Activation);
+            Click(window, "Save settings");
+            Assert(saves == 0 && window.IsVisible && EditorField<TextBlock>(window, "error").Text.Length > 0, "duplicate shortcut prevents save");
+            shortcut.Record(new Shortcut(8, 65));
+            Click(window, "Save settings");
+            Assert(saves == 0 && shortcut.CaptureError is not null, "invalid recording prevents save");
+            list.SelectedIndex = 1;
+            Click(window, "Save settings");
+            Assert(saves == 0, "invalid recording on another row still prevents save");
+            list.SelectedIndex = 0;
+            Assert(shortcut.CaptureError is not null, "returning to invalid recording restores its error");
+            shortcut.Record(new Shortcut(3, 0x57));
+            Click(window, "New");
+            Assert(list.Items.Count == initial.Presets.Count + 1 && ((ShortcutRow)list.SelectedItem).Preset.Region == new Region(0, 0, .5, 1), "new placement inherits last region");
+            Click(window, "Delete");
+            Assert(list.Items.Count == initial.Presets.Count && list.SelectedItem is not null, "delete selects a surviving row");
+            list.SelectedIndex = 0; window.UpdateLayout();
+            Assert(miniature.ActualWidth == 76 && EditorField<StackPanel>(window, "editor").ActualWidth >= 240, "minimum width retains usable list and editor");
+            var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)window.ActualWidth, (int)window.ActualHeight, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(window);
+            var png = new System.Windows.Media.Imaging.PngBitmapEncoder(); png.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+            string screenshot = Path.Combine(Path.GetTempPath(), "GridPilot-shortcuts-660.png");
+            using (var stream = File.Create(screenshot)) png.Save(stream);
+            Console.WriteLine("Shortcuts screenshot: " + screenshot);
+            Click(window, "Save settings");
+            var saved = store.Load().Settings;
+            Assert(saves == 1 && saved.Presets[0].Name == "Writing desk" && saved.Presets[0].Shortcut == new Shortcut(3, 0x57) && saved.Presets[0].Region == proportion && saved.Presets[0].Monitor == "next", "save persists all edited placement fields");
+            Assert(initial.Presets[0].Name != "Writing desk", "original settings remain isolated");
+            window = Open(_ => { saves++; return null; });
+            EditorField<TextBox>(window, "name").Text = "Discard me";
+            Click(window, "Cancel");
+            Assert(saves == 1 && initial.Presets[0].Name != "Discard me", "cancel discards edits without callback");
+            window = Open(_ => "Shortcut is already registered by another app.");
+            Click(window, "Save settings");
+            Assert(window.IsVisible && EditorField<TextBlock>(window, "error").Text.Contains("another app"), "registration conflict retains editor and displays callback error");
+        }
+        finally { window?.Close(); if (Directory.Exists(temporary)) Directory.Delete(temporary, true); }
+        Console.WriteLine("Shortcuts: live rows, grid, add/delete, save/persistence, cancel and conflicts passed.");
     }
 
     private static async Task SidebarNativeTests()
