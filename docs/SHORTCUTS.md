@@ -8,4 +8,4 @@ Shortcuts act globally on the active application once saved. Ctrl or Alt is requ
 
 The grid uses the row/column counts configured in General; placement rectangles keep their proportions when those counts change. Current/next/previous and specific monitor destinations keep their existing behavior.
 
-This PR targets main independently. It does not merge or install the pending Auto Arrange/partial-workspace PRs. Validation and critic results are recorded in VALIDATION.md when complete.
+Visual shortcuts are included in the consolidated build alongside Auto Arrange and partial workspaces. See [download instructions](TRY_THIS_BUILD.md) and [validation results](VALIDATION.md).

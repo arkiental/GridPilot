@@ -1,5 +1,13 @@
 # Validation
 
+## Consolidated version, 26 September
+
+PR #31 consolidates #23, #25, #28, #29, #31 and #33 on the Smoked Glass main baseline. All six original PR heads are ancestors of the integration branch; the previously merged UI branch has the same tree as that baseline. Merge resolutions retain both visual shortcut editing and partial-workspace settings, their validation paths, and every native test mode. The default full suite now includes the shortcut-editor fixtures.
+
+At integration commit `6b0056f`, `dotnet build GridPilot.sln -c Release -warnaserror` passed with zero warnings/errors; the core suite passed **4,990 assertions**; the complete native/WPF suite passed **5,459 assertions**. Tests ran serially on the available **7680 × 4320 display at 200%**. Coverage includes native minimum detection, real placement and grouped Undo/recovery, DWM/sidebar lifecycle, Auto Arrange and split proposals, partial-workspace placement, panel lifecycle, and visual shortcut editing/Save/Cancel. Only disposable owned fixtures were moved; no desktop input was injected. Subsequent consolidation edits update documentation only.
+
+Independent component and integration critics found no remaining actionable code defects. Actual pointer-driven OLE dragging, global shortcut key presses, system High Contrast transitions, representative production apps, mixed-monitor hardware and 8K100% ergonomics remain manual checks. Historical results below describe earlier milestones and do not replace this combined validation.
+
 ## Implemented scope
 
 Configurable grid; explicit target capture and Ctrl-click switching; front-to-back overlap cycling and named window chooser; reverse drag; live desktop preview; release-to-commit; Escape/outside/lost-capture cancellation; keyboard selection; proportional preset editor and global shortcuts; multiple-monitor selection and destination rules; DPI-scaled gaps; taskbar-aware geometry; tray controls; safe persistent settings; system/light/dark/high-contrast appearance; optional launch at sign-in; single-instance handling; verified undo, including maximized state; portable self-contained packaging and per-user installation scripts.

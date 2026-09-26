@@ -1,6 +1,6 @@
 # GridPilot
 
-**Combined build:** see [download and testing steps](docs/TRY_THIS_BUILD.md), [main-grid reflow and swaps](docs/PLACEMENT_INTERACTIONS.md), and [partial workspaces](docs/PARTIAL_WORKSPACE.md).
+**Consolidated build:** includes Auto Arrange, Shift-drag splits, native placement recovery, partial workspaces and visual shortcuts. See [download and testing steps](docs/TRY_THIS_BUILD.md), [main-grid reflow and swaps](docs/PLACEMENT_INTERACTIONS.md), [partial workspaces](docs/PARTIAL_WORKSPACE.md), and [visual shortcuts](docs/SHORTCUTS.md).
 
 **Auto arrange:** preview a Smart layout with a larger main workspace and smaller supporting apps, or choose Equal tiles. Live window previews fill the plan and two-column sidebar; select an app to edit its rules below the plan. Reroll feasible proposals, swap proposed frames, or draw saved app places and local subgrids. Accept explicitly, then keep arranging or Undo from the sheet. See [usage and constraints](docs/AUTO_ARRANGE.md).
 
@@ -23,7 +23,7 @@ On first launch, review **Settings** and click **Save settings**. GridPilot stay
 1. Activate a resizable desktop application window.
 2. Press **Ctrl + Shift + Space** (configurable).
 3. Choose a destination display if needed.
-4. Drag across the screenshot grid in any direction. Orange shows the destination, both in the thumbnail and as an outline on the desktop.
+4. Drag across the screenshot grid in any direction. Orange outlines in the preview show the destination and any affected windows that will reflow.
 5. Release inside the grid to apply. **Escape**, clicking outside, or losing input capture cancels. Releasing a drag outside the grid clears the selection without moving the window.
 
 The initial target is captured before the panel opens. **Ctrl-click a window inside the preview** to select a different target without closing the panel. Its name, icon, and red glow update immediately, and every subsequent placement or preset acts on that selected window. Selecting never resizes anything. Escape closes the panel and focuses the selected application; committing also focuses it. Maximized windows restore on commit; undo can restore their maximized state.
@@ -36,13 +36,13 @@ Press **Ctrl + F** to search window titles and app names. Ctrl + Z while editing
 
 The **Focus** panel uses charcoal surfaces and orange controls. Its header displays the selected application's own icon and name. A **red glow** marks that window's original position in the screenshot, with one gentle half-second pulse on opening; Windows' reduced-animation preference disables the pulse. Orange always represents the proposed placement.
 
-Each activation takes fresh, low-resolution screenshots of the connected displays before the panel appears. They are frozen while the panel is open, preserve each display's aspect ratio, and remain only in memory. The taskbar is visible but dimmed and cannot be selected. The grid follows the usable work area precisely. Protected or unavailable capture content may appear black; if capture fails entirely the grid still works. Icons are loaded asynchronously from the window or Windows shell, with a generic fallback if the application exposes none.
+Each activation takes fresh, low-resolution screenshots of the connected displays before the panel appears. They remain still while you choose a placement and refresh after a placement or Undo completes. They preserve each display's aspect ratio and remain only in memory. The taskbar is visible but dimmed and cannot be selected. The grid follows the usable work area precisely. Protected or unavailable capture content may appear black; if capture fails entirely the grid still works. Icons are loaded asynchronously from the window or Windows shell, with a generic fallback if the application exposes none.
 
 **Left**, **Right**, and **Fill** apply directly to the selected display. **Thirds** opens three placements; **More** lists every saved placement and its shortcut. Click **6 × 6** to change columns and rows independently; changes persist immediately.
 
 Keyboard: arrows move the grid cursor; **Shift + arrows** extends a rectangle; **Enter** applies; **Escape** cancels. **Ctrl + Z** while the panel is open undoes the last placement. You can assign a global Undo shortcut in settings.
 
-Clicking one cell places the window there. If the app requires a larger minimum width or height, GridPilot uses the smallest size the app accepts, centers it on that cell, and keeps it within the display margins. It reports this adjustment instead of snapping back to the old position. Undo still restores the original size and position.
+Clicking one cell proposes that rectangle through the same overlap-reflow rules as a larger selection. If a known minimum or the remaining space makes the proposal infeasible, choose a larger region. Native refusal triggers verified recovery. Auto Arrange detects reported minimum sizes before proposing its layout; Undo restores the original positions and sizes after a successful placement.
 
 ## Preferences and placements
 
@@ -67,7 +67,7 @@ Targets Windows 11 x64 (including x64 emulation where available). Standard resiz
 
 Windows and applications can enforce minimum sizes or special positioning rules. GridPilot verifies visible geometry and makes bounded corrections after DPI changes. A consistently larger minimum size is accommodated on the selected display; exact-sized selections remain exact. Unstable results, rejected movement, smaller maximum-constrained results, or a minimum too large to fit still restore the previous placement and report the problem. Undo is retained if restoration cannot be verified.
 
-Each placement fits one monitor's current usable area, excluding the taskbar. Monitor geometry is refreshed on every operation; display or work-area changes dismiss an open selection. This version does not automate whole workspaces, app launch rules, virtual desktops, or cloud sync.
+Each placement fits one monitor's current usable area, excluding the taskbar. Monitor geometry is refreshed on every operation; display or work-area changes dismiss an open selection. Auto Arrange applies a workspace only when you accept its proposal. App launch rules, virtual desktops and cloud sync are not supported.
 
 ## Build and verify
 
