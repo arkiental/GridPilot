@@ -31,6 +31,7 @@ public partial class GridPanel
         var entry = fresh.FirstOrDefault(e => Same(e.Target, requested));
         if (entry is null) return "The selected window is no longer visible.";
         capturedWindows = fresh; target = entry.Target;
+        CancelFocusDivider();
         ClearFreeSpace();
         ClearOverlap(); cachedSelection = null; cachedPlan = null;
         GridControl.Reset(); preview.Hide();
@@ -40,6 +41,7 @@ public partial class GridPanel
         var id = Windows.ApplicationIdentity.Read(target);
         var rule = settings.ArrangementPreferences.FirstOrDefault(p => string.Equals(p.AppId, id, StringComparison.OrdinalIgnoreCase));
         minimums[(target.Handle, target.ProcessId)] = (rule?.MinimumWidth ?? 320, rule?.MinimumHeight ?? 240);
+        RebuildFocusDividers();
         EnsureExternalCard(entry);
         UpdateSidebarSelection(); TargetChanged?.Invoke(target); _ = LoadAppVisualAsync();
         return null;

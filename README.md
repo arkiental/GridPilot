@@ -111,7 +111,7 @@ Crops are normalized regions, so source resizing scales the region; scrolling, z
 
 ## Elastic layouts
 
-Auto arrange includes **Elastic Layouts**: enable **Adjust dividers** to resize neighboring proposed frames together, including T junctions, without moving windows until **Accept layout**. Drag a handle, use arrows (8 physical pixels), or enter an exact **Divider px** coordinate. Fixed places, locked ratios and effective minimums remain enforced; Escape cancels an active gesture. See [Auto arrange](docs/AUTO_ARRANGE.md).
+**Elastic dividers** appear automatically wherever the current layout has a supported shared boundary. In Auto Arrange, drag a divider, use arrows (8 physical pixels), or enter an exact **Divider px** coordinate to update the proposal; the live window previews remain visible, and **Accept layout** moves the windows. In Focus, drag an orange divider between already arranged windows, or focus it for arrow and numeric adjustment. Releasing the drag, pressing Enter, or choosing **Apply divider** uses the existing verified group placement and Undo. Escape cancels an active edit. Fixed places, locked ratios and effective minimums remain enforced. See [Auto arrange](docs/AUTO_ARRANGE.md) and [placement interactions](docs/PLACEMENT_INTERACTIONS.md).
 
 ## Workspace scenes
 

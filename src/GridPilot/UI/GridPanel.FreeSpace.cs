@@ -36,6 +36,7 @@ public partial class GridPanel
     internal async Task FindFreeSpaceAsync(bool changed = false)
     {
         if (closing || placementPending || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
+        FocusDividerCanvas.Visibility = Visibility.Hidden;
         ClearFreeSpace(); GridControl.Reset(); pendingPlacements.Clear(); cachedSelection = null; cachedPlan = null; preview.Hide(); ClearOverlap();
         PresetsPopup.IsOpen = false;
         var source = freeSpaceCancellation = new CancellationTokenSource();
@@ -89,7 +90,7 @@ public partial class GridPanel
     }
     private void FreeSpacePreviousClick(object sender, RoutedEventArgs e) => CycleFreeSpace(-1);
     private void FreeSpaceNextClick(object sender, RoutedEventArgs e) => CycleFreeSpace(1);
-    private void FreeSpaceCancelClick(object sender, RoutedEventArgs e) { ClearFreeSpace(); FreeSpaceStatus(Hint); GridControl.Focus(); }
+    private void FreeSpaceCancelClick(object sender, RoutedEventArgs e) { ClearFreeSpace(); FreeSpaceStatus(Hint); RebuildFocusDividers(); GridControl.Focus(); }
     private async void FreeSpaceApplyClick(object sender, RoutedEventArgs e) => await ApplyFreeSpaceAsync();
 
     internal async Task ApplyFreeSpaceAsync()

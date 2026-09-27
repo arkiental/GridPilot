@@ -111,7 +111,7 @@ internal sealed partial class AutoArrangeWindow
         element.MouseLeftButtonUp += (_, _) => down = null;
         element.MouseMove += (_, e) =>
         {
-            if (adjustDividers.IsChecked == true || applying || down is not { } origin || e.LeftButton != MouseButtonState.Pressed) return;
+            if (applying || down is not { } origin || e.LeftButton != MouseButtonState.Pressed) return;
             var point = e.GetPosition(element);
             if (Math.Abs(point.X - origin.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(point.Y - origin.Y) < SystemParameters.MinimumVerticalDragDistance) return;
             down = null;
@@ -171,7 +171,9 @@ internal sealed partial class AutoArrangeWindow
         foreach (var slot in plan.Slots)
         {
             var row = rows[int.Parse(slot.Id, System.Globalization.CultureInfo.InvariantCulture) - 1];
-            var thumbnail = new WindowThumbnail(row.Entry.Target) { IsHitTestVisible = false, Margin = new(2) };
+            // Keep a compositor-free corridor at frame edges so the always-visible
+            // divider remains above native DWM content, including when gap is zero.
+            var thumbnail = new WindowThumbnail(row.Entry.Target) { IsHitTestVisible = false, Margin = new(8) };
             var content = new Grid(); content.RowDefinitions.Add(new()); content.RowDefinitions.Add(new() { Height = new GridLength(Math.Min(28, slot.Bounds.Height * scale * .3)) }); content.Children.Add(thumbnail);
             var label = new TextBlock { Text = $"{slot.Id}. {row.Entry.Target.Title} · {slot.Bounds.Width} × {slot.Bounds.Height}", FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new(4, 1, 4, 1), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false }; Grid.SetRow(label, 1); content.Children.Add(label);
             var frame = new Border { Width = slot.Bounds.Width * scale, Height = slot.Bounds.Height * scale, BorderThickness = new(3), Child = content, Background = Brushes.Transparent, Focusable = true, ToolTip = row.Entry.Target.Title + $"\nProposed frame: {slot.Bounds.Width} × {slot.Bounds.Height}\nLive current content, cropped to fit. Drag to swap frames. Hold Shift to split: left, right, top or bottom." };
@@ -205,7 +207,7 @@ internal sealed partial class AutoArrangeWindow
             if (content.Template.FindName("PART_ScrollContentPresenter", content) is ScrollContentPresenter outer) clip.Intersect(Viewport(outer));
             var previewClip = Rect.Intersect(clip, Viewport(canvas));
             foreach (var view in planViews)
-                if (view.Row != splitTarget && adjustDividers.IsChecked != true) view.Thumbnail.Update(this, handle, previewClip); else view.Thumbnail.Dispose();
+                if (view.Row != splitTarget) view.Thumbnail.Update(this, handle, previewClip); else view.Thumbnail.Dispose();
             if (sidebar.Template.FindName("PART_ScrollContentPresenter", sidebar) is ScrollContentPresenter presenter)
             {
                 var sidebarClip = Rect.Intersect(clip, Viewport(presenter));

@@ -19,7 +19,6 @@ internal sealed partial class AutoArrangeWindow
             protected override string GetHelpTextCore() => "Arrow keys adjust by 8 physical pixels. Use Divider px for a precise position.";
         }
     }
-    private readonly CheckBox adjustDividers = new() { Content = "Adjust dividers", Margin = new(12, 8, 8, 8) };
     private readonly TextBox dividerPosition = new() { Width = 72, Margin = new(5), ToolTip = "Divider position in physical pixels on this display" };
     private readonly TextBlock elasticHint = new() { TextWrapping = TextWrapping.Wrap, MaxWidth = 500, Margin = new(5) };
     private ElasticDivider? focusedDivider;
@@ -29,7 +28,6 @@ internal sealed partial class AutoArrangeWindow
 
     private void InitializeElastic(Panel toolbar)
     {
-        toolbar.Children.Add(adjustDividers);
         System.Windows.Automation.AutomationProperties.SetLiveSetting(status, System.Windows.Automation.AutomationLiveSetting.Polite);
         SizeChanged += (_, _) => CancelElastic();
         var precision = new WrapPanel();
@@ -45,10 +43,8 @@ internal sealed partial class AutoArrangeWindow
             plan = next; RenderPlan(); status.Text = "Divider updated in preview. Accept layout to move windows.";
         }));
         precision.Children.Add(elasticHint);
-        precision.Visibility = Visibility.Collapsed; toolbar.Children.Add(precision);
+        toolbar.Children.Add(precision);
         System.Windows.Automation.AutomationProperties.SetName(dividerPosition, "Divider position in physical pixels");
-        adjustDividers.Checked += (_, _) => { precision.Visibility = Visibility.Visible; RenderPlan(); ExplainElastic(); };
-        adjustDividers.Unchecked += (_, _) => { CancelElastic(); precision.Visibility = Visibility.Collapsed; RenderPlan(); };
     }
     private bool CanAdjust() => !applying && !closing && !detectingMinimums && ValidateLiveTargets();
     private string DescribeLimit(ElasticDivider divider) => divider.Limit + $". Allowed position: {divider.Minimum}–{divider.Maximum} physical px.";
@@ -62,7 +58,6 @@ internal sealed partial class AutoArrangeWindow
     private void RenderDividers()
     {
         focusedDivider = null; dividerPosition.IsEnabled = false;
-        if (adjustDividers.IsChecked != true) return;
         var topology = ElasticLayout.Discover(plan, planItems, settings.Gap, monitor.Dpi);
         double scale = canvas.Width / monitor.Work.Width;
         foreach (var divider in topology.Dividers.Where(d => d.Minimum < d.Maximum))

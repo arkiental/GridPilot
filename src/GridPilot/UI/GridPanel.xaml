@@ -43,8 +43,17 @@
      </DockPanel>
     </Border>
    </StackPanel>
-   <local:SelectionGrid Grid.Row="1" x:Name="GridControl" AutomationProperties.Name="Desktop placement preview" ToolTip="Drag to resize overlapping windows into remaining cells. Alt-drag swaps exact sizes; wheel chooses among overlapping destinations. Ctrl-click selects a window; repeat to cycle overlaps. Ctrl+Shift-click cycles backward. Red is the selected window; orange is its destination."/>
+   <Grid Grid.Row="1">
+    <local:SelectionGrid x:Name="GridControl" AutomationProperties.Name="Desktop placement preview" ToolTip="Drag to resize overlapping windows into remaining cells. Drag an orange divider to resize neighboring windows. Alt-drag swaps exact sizes; wheel chooses among overlapping destinations. Ctrl-click selects a window; repeat to cycle overlaps. Ctrl+Shift-click cycles backward. Red is the selected window; orange is its destination."/>
+    <Canvas x:Name="FocusDividerCanvas" SizeChanged="FocusDividerCanvasSizeChanged"/>
+   </Grid>
    <StackPanel Grid.Row="2">
+   <WrapPanel x:Name="FocusDividerControls" IsEnabled="False" Margin="8,4" VerticalAlignment="Center">
+    <TextBlock Text="Divider px" VerticalAlignment="Center"/>
+    <TextBox x:Name="FocusDividerPosition" Width="76" Margin="6,0" AutomationProperties.Name="Divider position in physical pixels"/>
+    <Button Content="Apply divider" Click="FocusDividerApplyClick" Padding="8,3" AutomationProperties.Name="Apply divider position"/>
+    <Button Content="Cancel" Click="FocusDividerCancelClick" Margin="5,0,0,0" Padding="8,3" AutomationProperties.Name="Cancel divider preview"/>
+   </WrapPanel>
    <StackPanel x:Name="FreeSpaceControls" Visibility="Collapsed" Margin="0,5">
    <WrapPanel HorizontalAlignment="Center">
     <Button x:Name="FreeSpacePrevious" Content="Previous" Click="FreeSpacePreviousClick" AutomationProperties.Name="Previous free space candidate" Padding="8,4"/>

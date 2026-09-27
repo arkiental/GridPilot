@@ -19,7 +19,7 @@ internal sealed partial class AutoArrangeWindow
     private void PreviewArrangementDrop(FrameworkElement element, Row row, DragEventArgs e)
     {
         e.Handled = true; e.Effects = DragDropEffects.None;
-        if (adjustDividers.IsChecked == true || applying || closing || detectingMinimums || e.Data.GetData(dragFormat) is not string from)
+        if (applying || closing || detectingMinimums || e.Data.GetData(dragFormat) is not string from)
         { ClearSplitPreview(); return; }
         if ((e.KeyStates & DragDropKeyStates.ShiftKey) == 0)
         {

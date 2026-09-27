@@ -1,5 +1,11 @@
 # Validation
 
+## Always-on dividers in Focus and Auto Arrange (issues #36–#38)
+
+The Auto Arrange divider toggle was removed. Release build with warnings as errors passed, the core suite passed **5,355 assertions**, and the complete owned native/WPF suite passed **5,918 assertions** on one **1920 × 1080 display at 100%**. A first full-suite run failed an existing desktop compositor pixel assertion; two successive complete reruns passed. The focused `--elastic` suite passed **5,375 assertions** after independent review fixes.
+
+Owned fixture checks verify that both DWM plan thumbnails remain registered after keyboard and pointer-style divider frame updates, and that Escape restores the proposal without native movement. A captured compositor screenshot shows fixture content visible in both frames beside the divider. Focus now discovers exact shared boundaries in its captured physical-pixel arrangement, previews both adjusted frames, and sends an accepted edit through its existing grouped placement callback. Focus fixture checks cover keyboard preview, Escape cancellation, invalid Alt-drag recovery, unchanged native fixture bounds before apply, and group submission. The reviewer found and verified fixes for overlay lifecycle and invalid Alt-drag release; no blocker remained. These checks use owned windows and do not inject desktop input. Actual pointer dragging, accessibility tooling, mixed-monitor DPI, production apps, and zero-gap compositor layering remain manual checks.
+
 ## Combined workspace features, 27 September (PR #35)
 
 The combined branch includes Workspace Scenes (#15), Elastic Layouts (#16), Reference Rail (#17), Fit into free space (#34), and all existing main-branch features. Release build with warnings as errors passed; core suite passed **5,355 assertions**; the complete owned native/WPF suite passed **5,896 assertions** on one **1920 × 1080 display at 100%**. Every new focused suite also passed before integration. The default full suite includes scene restoration, reference crop pixel/lifecycle checks, and Elastic preview checks alongside the existing placement, sidebar, shortcut, recovery and Undo coverage.

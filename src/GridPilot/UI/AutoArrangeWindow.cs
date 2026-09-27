@@ -332,7 +332,7 @@ internal sealed partial class AutoArrangeWindow : Window
             RenderPlan();
             if (!plan.Success) { status.Text = plan.Error; return; }
             double coverage = plan.Slots.Sum(s => (double)s.Bounds.Width * s.Bounds.Height) / ((double)monitor.Work.Width * monitor.Work.Height);
-            status.Text = $"{items.Count} windows · {coverage:P0} of work area · proposal 1 of {candidates.Count}. Drag windows to swap; Accept moves them.";
+            status.Text = $"{items.Count} windows · {coverage:P0} of work area · proposal 1 of {candidates.Count}. Drag windows to swap or adjust orange dividers; Accept moves them.";
         }
         catch (ArgumentException ex) { plan = new([], ex.Message); candidates = []; planItems = []; applyButton.IsEnabled = reroll.IsEnabled = false; RenderPlan(); status.Text = ex.Message; }
         UpdateSelection(); ShowInspector();

@@ -75,7 +75,7 @@ public partial class GridPanel : Window
         PositionNearPointer();
         Deactivated += (_, _) => Dispatcher.BeginInvoke(DismissIfOutside);
         Closed += (_, _) => { closing = true; ClearFreeSpace(); Backdrop.Dispose(); GridControl.Desktop = null; snapshots.Clear(); visualTasks.Clear(); preview.Close(); };
-        Loaded += (_, _) => { Diagnostics.Write("Focus panel loaded."); Activate(); GridControl.Focus(); GridControl.PulseTarget(); };
+        Loaded += (_, _) => { Diagnostics.Write("Focus panel loaded."); Activate(); GridControl.Focus(); GridControl.PulseTarget(); RebuildFocusDividers(); };
         PreviewKeyDown += HandlePanelKey;
         ((UIElement)PresetsPopup.Child).PreviewKeyDown += HandlePanelKey;
         ((UIElement)GridPopup.Child).PreviewKeyDown += HandlePanelKey;
@@ -149,6 +149,7 @@ public partial class GridPanel : Window
         TargetChanged?.Invoke(target);
         UpdateSidebarSelection();
         _ = LoadAppVisualAsync();
+        RebuildFocusDividers();
         GridControl.Focus();
     }
     private void WindowStackClick(object sender, RoutedEventArgs e)
@@ -200,7 +201,7 @@ public partial class GridPanel : Window
     }
     internal bool HandleShortcut(Key key, ModifierKeys modifiers)
     {
-        if (key == Key.Escape) { Dismiss(true); return true; }
+        if (key == Key.Escape) { if (!CancelFocusDivider()) Dismiss(true); return true; }
         if (key == Key.F && modifiers == ModifierKeys.Control)
         {
             if (!sidebarOpen) SetSidebarOpen(true);
@@ -229,6 +230,7 @@ public partial class GridPanel : Window
     private void ShowPreview(Region region)
     {
         if (closing || placementPending || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
+        FocusDividerCanvas.Visibility = Visibility.Hidden;
         ClearFreeSpace(); ClearOverlap();
         var plan = BuildReflow(monitor, region);
         ShowInteractionPlan(monitor, plan);
@@ -236,6 +238,7 @@ public partial class GridPanel : Window
     internal void Commit(Region region)
     {
         if (MonitorPicker.SelectedItem is not DisplayMonitor monitor || closing || placementPending) return;
+        FocusDividerCanvas.Visibility = Visibility.Hidden;
         ClearFreeSpace();
         PendingPlacementRegion = region;
         var plan = BuildReflow(monitor, region);
@@ -249,6 +252,7 @@ public partial class GridPanel : Window
         ClearOverlap();
         GridControl.Desktop = snapshots[monitor.Device];
         UpdateInteractionFrames();
+        RebuildFocusDividers();
         SelectionLabel.Text = Hint;
         MonitorPicker.ToolTip = monitor.Label;
         if (ready) { PositionNearPointer(); GridControl.PulseTarget(); }
