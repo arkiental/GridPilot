@@ -63,8 +63,9 @@ internal static partial class Program
                         else if (args.Contains("--workspace")) await PartialWorkspaceNativeTests();
                         else if (args.Contains("--interactions")) await PlacementInteractionNativeTests();
                         else if (args.Contains("--arrangement")) await ArrangementNativeTests();
+                        else if (args.Contains("--reference-rail")) await ReferenceRailNativeTests();
                         else if (args.Contains("--sidebar")) await SidebarNativeTests();
-                        else { await NativeTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); }
+                        else { await ReferenceRailNativeTests(); await NativeTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); }
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
@@ -78,6 +79,7 @@ internal static partial class Program
     }
     private static void CoreTests()
     {
+        ReferenceCropTests();
         WindowMinimumTests();
         ArrangementTests();
         PartialWorkspaceTests();
@@ -815,3 +817,4 @@ internal static partial class Program
         app.Run(window);
     }
 }
+

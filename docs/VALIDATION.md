@@ -140,3 +140,11 @@ Release build with warnings as errors passed with zero warnings. Coordinator ind
 Independent GPT-6 Astra High review approved the implementation after selected-text contrast and theme-refresh findings were fixed. Miniature theme subscriptions follow Loaded/Unloaded lifetime; actual system High Contrast toggling was not performed. The owned render below is a WPF fixture, not a screenshot of a user's settings or a claim of mixed-monitor hardware validation.
 
 ![Shortcut editor at minimum width](images/shortcuts-editor.png)
+
+## Reference Rail (#17)
+
+Release warnings-as-errors build and core suite passed (4999 assertions). Focused owned-fixture `--reference-rail` passed (5015 assertions), exercising the four-card limit, five hide/reopen cycles, minimize/restore, close placeholders, and shutdown. Geometry covers explicit source offsets, conservative rounding, normalized resize mapping, invalid/zero crops, letterbox pointer clamping, negative destinations, and aspect-preserving containment.
+
+Rendering uses DWM source rectangles with `ClientOnly=false`; full source dimensions come from `DwmQueryThumbnailSourceSize`, avoiding visible-frame/client offsets. The crop selection overlay is a separate transparent popup HWND, above compositor content. Cards and result wells keep all controls outside their thumbnail rectangles. A 500 ms dispatcher timer checks at most four identities/geometry while visible; DWM supplies pixel updates independently. Hide stops the timer and synchronously releases every registration; visible scrolling only retains intersecting surfaces. Repeated-cycle fixture checks observed registrations returning to zero on every hide and source invalidation. No CPU screenshot polling, pixel persistence, or network transmission is used.
+
+Remaining manual/hardware coverage: production browser/photo+palette usability, real animated quadrant pixel observation, four-card CPU profiling under load, accessibility inspection/high contrast, RDP/protected apps, mixed-DPI display disconnect, and 8K100% (#19/#20). Successful native registration does not prove protected content delivery. Full-suite results are tracked on the combined PR.

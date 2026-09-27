@@ -100,3 +100,11 @@ The publish script creates a self-contained folder and ZIP in `artifacts`. `Inst
 Optional diagnostic switches: `--background` starts in the tray; `--diagnostics` records events in `%LOCALAPPDATA%\GridPilot\diagnostics.log`; `--ui-test` exposes the grid as a regular taskbar window for desktop automation. Normal operation does not write diagnostic traces. Unexpected errors are recorded in `errors.log` in the same folder. There is no network service, account, or telemetry.
 
 Auto Arrange supports **Shift-drag splitting**: drag onto a window and hold Shift to choose its left, right, top or bottom half. Review the preview, then Accept layout. See [Auto Arrange](docs/AUTO_ARRANGE.md).
+
+## Reference rail
+
+Right-click a window card in Focus (keyboard: select the card and press Shift+F10), then **Pin to reference rail**. Draw a rectangle on the fitted full-window preview, or type X/Y/Width/Height in source pixels; **Pin crop** commits and Cancel/Escape leaves the session unchanged. The outlined crop is also shown in a separate result preview. Coordinates include the complete DWM window surface, including chrome; draw inside the content to exclude it.
+
+The independent rail holds up to four crops, including multiple crops of one source. **Add crop** opens the supported-window picker. **Open source** explicitly activates the original HWND+PID; previews never forward editing input. **Edit crop**, **Remove**, **Remove all**, **Always on top**, and edge-snap buttons are available. Drag/resize normally. Closing Focus leaves the rail visible. **Hide rail** (or its close button) releases previews; the tray's **Show reference rail** reopens the session.
+
+Crops are normalized regions, so source resizing scales the region; scrolling, zooming, and page reflow change its contents. They do not track particular images or text. Minimized/closed/unavailable sources get labeled placeholders; closed bindings never rebind. Some protected or unsupported apps display blank compositor content even when registration succeeds. No fallback capture is attempted. Session cards, source handles, and images are never saved; restarting starts empty. No rail preferences are persisted in this first version.

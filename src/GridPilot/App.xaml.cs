@@ -23,6 +23,8 @@ public partial class App : Application
     private GridPanel? panel;
     private SettingsWindow? settingsWindow;
     private AutoArrangeWindow? arrangeWindow;
+    private ReferenceRailWindow? referenceRail;
+    private ReferenceRailWindow Rail => referenceRail ??= new ReferenceRailWindow();
     private WindowTarget? lastTarget;
     private readonly ExternalForegroundTracker externalForeground = new();
     private PanelPlacementController? placementController;
@@ -132,6 +134,7 @@ public partial class App : Application
         next.SettingsRequested += ShowSettings;
         next.UndoRequested += () => _ = UndoAsync(next);
         next.AutoArrangeRequested += ShowAutoArrange;
+        next.ReferenceCropRequested += target => { next.Dismiss(false); Rail.Pin(target); };
         next.Show();
         Diagnostics.Write("Focus panel shown.");
     }
@@ -290,6 +293,7 @@ public partial class App : Application
         }));
         undoItem = new Forms.ToolStripMenuItem("Undo last placement", null, (_, _) => Dispatcher.BeginInvoke(() => _ = UndoAsync())); menu.Items.Add(undoItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("Show reference rail", null, (_, _) => Dispatcher.BeginInvoke(() => Rail.Show()));
         menu.Items.Add("Settings…", null, (_, _) => Dispatcher.BeginInvoke(ShowSettings));
         pauseItem = new Forms.ToolStripMenuItem("Pause shortcuts", null, (_, _) => Dispatcher.BeginInvoke(TogglePause)); menu.Items.Add(pauseItem);
         startupItem = new Forms.ToolStripMenuItem("Launch at sign-in", null, (_, _) => Dispatcher.BeginInvoke(() =>
@@ -349,6 +353,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         exiting = true;
+        referenceRail?.Shutdown();
         panel?.Dismiss(false); settingsWindow?.Close(); arrangeWindow?.Close();
         if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook);
         hotkeys?.Dispose();
@@ -357,3 +362,4 @@ public partial class App : Application
         base.OnExit(e);
     }
 }
+

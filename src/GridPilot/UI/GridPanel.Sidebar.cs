@@ -25,6 +25,7 @@ public partial class GridPanel
     internal int SidebarResultCount => windowCards.Count(c => c.Button.Visibility == Visibility.Visible);
     internal int ThumbnailCount => windowCards.Count(c => c.Thumbnail.HasRegistration);
 
+    internal event Action<WindowTarget>? ReferenceCropRequested;
     private void InitializeSidebar()
     {
         sidebarOpen = settings.WindowSidebarOpen;
@@ -56,6 +57,10 @@ public partial class GridPanel
             AutomationProperties.SetName(button, entry.Target.Title);
             var card = new WindowCard(entry, button, frame, thumbnail, icon);
             button.Click += (_, _) => SelectSidebarWindow(entry);
+            var referenceMenu = new ContextMenu();
+            var pin = new MenuItem { Header = "Pin to reference rail" };
+            pin.Click += (_, _) => ReferenceCropRequested?.Invoke(entry.Target);
+            referenceMenu.Items.Add(pin); button.ContextMenu = referenceMenu;
             button.MouseEnter += (_, _) => { if (!IsSelected(entry)) frame.SetResourceReference(Border.BorderBrushProperty, "AccentBrush"); };
             button.MouseLeave += (_, _) => UpdateSidebarSelection();
             button.GotKeyboardFocus += (_, _) => { button.BringIntoView(); if (!IsSelected(entry)) frame.SetResourceReference(Border.BorderBrushProperty, "AccentBrush"); };
@@ -185,3 +190,4 @@ public partial class GridPanel
         PositionNearPointer(); GridControl.Focus();
     }
 }
+
