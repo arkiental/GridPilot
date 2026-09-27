@@ -155,3 +155,9 @@ Core coverage includes vertical/horizontal T junctions, exact feasible endpoints
 Local core sample: 1000 32-frame topology rebuilds took 278–281 ms (diagnostic, not an FPS guarantee). Mixed-DPI/8K displays, production application dynamic limits, assistive technology, high contrast and pointer usability remain manual hardware checks. No desktop input was injected.
 
 Release build with warnings as errors passed. Core: 5199 assertions; focused owned WPF/native --elastic run: 5207 assertions, passed. Full integration suite is recorded separately by the coordinating PR. A transient Windows Application Control load failure on an earlier binary cleared after the next normal rebuild; no security settings were altered.
+## Workspace scenes (#15)
+
+- Core coverage: settings roundtrip and backward defaults, unique identities, malformed/null scene rejection, no persisted native identities, negative-origin geometry, display scaling and oversized frames.
+- `dotnet run --project tests/GridPilot.Tests -c Release --no-build -- --scenes` exercises owned fixtures only: explicit same-app assignment, duplicate identity refusal, preview invalidation, missing-display remap, save-name retention, grouped Undo, app-size refusal rollback and stale display rejection. With multiple connected displays it places the fixtures on different displays in one transaction.
+- Manual: try capture/save/rename/delete and restore after reconnecting mixed-DPI displays; verify keyboard navigation, high contrast and small work areas. Source maximized geometry restores as a normal rectangle; Undo restores the pre-operation native state. No app launching, document reopening or saved Z-order is promised.
+- Local validation on 2026-09-27: Release build with warnings as errors passed; core suite passed 5,000 assertions; focused scenes suite passed 5,011 assertions on one connected display. Multi-display and mixed-DPI hardware behavior remains a manual check.

@@ -256,7 +256,8 @@ public sealed class WindowService
     }
 
     internal async Task<PlacementResult> ArrangeAsync(DisplayMonitor expected, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements,
-        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>? expectedOriginals = null, Action? verify = null, Action? verifyResult = null)
+        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>? expectedOriginals = null, Action? verify = null, Action? verifyResult = null,
+        IReadOnlyList<DisplayMonitor>? sceneDisplays = null, bool allowSceneOverlap = false)
     {
         if (Busy) return new(false, "A placement is already in progress.");
         if (HasUncertainRequests) return new(false, "A previous native request is still unverified. Retry Undo before another placement.");
@@ -270,8 +271,8 @@ public sealed class WindowService
         {
             void CheckDisplay()
             {
-                var current = MonitorService.GetAll().FirstOrDefault(m => m.Device == expected.Device);
-                if (current is null || current.Work != expected.Work || current.Dpi != expected.Dpi)
+                var connected = MonitorService.GetAll();
+                if ((sceneDisplays ?? [expected]).Any(display => !connected.Any(m => m.Device == display.Device && m.Work == display.Work && m.Dpi == display.Dpi)))
                     throw new InvalidOperationException("The display changed. Open Auto arrange again.");
             }
             CheckDisplay();
@@ -306,11 +307,11 @@ public sealed class WindowService
             CheckOccupancy();
             for (int a = 0; a < placements.Count; a++)
             for (int b = a + 1; b < placements.Count; b++)
-                if (PlacementInteractions.Overlaps(placements[a].Bounds, placements[b].Bounds) && !exactSwap)
+                if (PlacementInteractions.Overlaps(placements[a].Bounds, placements[b].Bounds) && !exactSwap && !allowSceneOverlap)
                     throw new InvalidOperationException("The placement plan contains overlapping windows.");
             foreach (var p in placements)
             {
-                if (!p.Bounds.IsValid || p.Bounds.Left < expected.Work.Left || p.Bounds.Top < expected.Work.Top || p.Bounds.Right > expected.Work.Right || p.Bounds.Bottom > expected.Work.Bottom)
+                if (!p.Bounds.IsValid || !(sceneDisplays ?? [expected]).Any(display => p.Bounds.Left >= display.Work.Left && p.Bounds.Top >= display.Work.Top && p.Bounds.Right <= display.Work.Right && p.Bounds.Bottom <= display.Work.Bottom))
                     throw new InvalidOperationException("The plan no longer fits this display.");
                 if (!IsSameWindow(p.Target) || Capture(p.Target.Handle, out _) is null || TakeSnapshot(p.Target) is not { } before)
                     throw new InvalidOperationException("A selected window is unavailable. Refresh the window list.");

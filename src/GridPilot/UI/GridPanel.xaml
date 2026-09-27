@@ -35,6 +35,7 @@
     </DockPanel>
     <Border Background="{DynamicResource PanelControlBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="5" Margin="0,0,0,7" Padding="2,0">
      <DockPanel Height="32">
+      <Button Background="Transparent" DockPanel.Dock="Right" Content="Scenes" Click="ScenesClick" Padding="10,4" BorderThickness="0" ToolTip="Save and restore workspace scenes"/>
       <Button Background="Transparent" DockPanel.Dock="Right" Content="Auto arrange" Click="AutoArrangeClick" Padding="10,4" BorderThickness="0" ToolTip="Preview and arrange windows on this display"/>
       <Button x:Name="GridOptionsButton" Background="Transparent" DockPanel.Dock="Right" Click="GridOptionsClick" BorderThickness="0" Padding="12,4" ToolTip="Grid size" AutomationProperties.Name="Grid size"><StackPanel Orientation="Horizontal"><TextBlock x:Name="GridSize"/><TextBlock Text="⌄" Margin="12,0,0,0"/></StackPanel></Button>
       <TextBlock DockPanel.Dock="Left" Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="18" VerticalAlignment="Center" Margin="8,0"/>

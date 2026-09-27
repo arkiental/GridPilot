@@ -30,6 +30,7 @@ public partial class GridPanel : Window
     public event Action<WindowTarget, PlacementPreset, string>? PresetRequested;
     public event Action<WindowTarget>? TargetChanged;
     public event Action? SettingsRequested;
+    internal event Action? ScenesRequested;
     public event Action? UndoRequested;
     internal event Action<DisplayMonitor, IReadOnlyList<PreviewWindowEntry>>? AutoArrangeRequested;
 
@@ -361,6 +362,7 @@ public partial class GridPanel : Window
         if (restoreFocus && WindowService.IsSameWindow(target)) Native.SetForegroundWindow(target.Handle);
     }
     private void CancelClick(object sender, RoutedEventArgs e) => Dismiss(true);
+    private void ScenesClick(object sender, RoutedEventArgs e) { Dismiss(false); ScenesRequested?.Invoke(); }
     private void SettingsClick(object sender, RoutedEventArgs e) { Dismiss(false); SettingsRequested?.Invoke(); }
     private void UndoClick(object sender, RoutedEventArgs e) { if (placementPending) return; BeginPlacement(); UndoRequested?.Invoke(); }
 }
