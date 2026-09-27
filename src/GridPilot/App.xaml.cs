@@ -109,6 +109,23 @@ public partial class App : Application
         next.PlacementRequested += (selected, region, device) => _ = PlaceAsync(selected, device, region, true);
         next.BatchPlacementRequested += (display, placements, originals) => _ = ApplyPanelBatchAsync(next, display, placements, originals, next.PendingPlacementRegion);
         next.EmptySlotRequested += (selected, device) => _ = FillEmptySlotAsync(selected, device);
+        next.FreeSpaceRequested += async (snapshot, frame, cancellation) =>
+        {
+            var result = await Placements.RunAsync(next, snapshot.Target, async () =>
+            {
+                void Verify(PixelRect bounds)
+                {
+                    if (cancellation.IsCancellationRequested) throw new InvalidOperationException("Free space placement was cancelled.");
+                    FreeSpacePlacement.VerifyOccupancy(snapshot, bounds, settings.Gap);
+                }
+                var placed = await windows.ArrangeAsync(snapshot.Monitor, [(snapshot.Target, frame)], snapshot.Originals,
+                    () => Verify(frame), () => Verify(WindowService.VisibleBounds(snapshot.Target.Handle)));
+                if (placed.Success && WindowService.IsSameWindow(snapshot.Target)) Native.SetForegroundWindow(snapshot.Target.Handle);
+                return placed.Success ? placed with { Message = "Placed in free space. Undo restores only the selected window." } : placed;
+            }, true);
+            UpdateTray();
+            return result;
+        };
         next.PresetRequested += (selected, preset, device) => _ = preset.Monitor == "current"
             ? PlaceAsync(selected, device, preset.Region) : ApplyPresetAsync(selected, preset);
         next.TargetChanged += selected => lastTarget = selected;

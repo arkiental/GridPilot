@@ -48,6 +48,8 @@ Clicking one cell proposes that rectangle through the same overlap-reflow rules 
 
 **Fill empty slot** is a separate, deliberate placement mode. Configure **Settings → Partial workspace** to reserve an area, choose slot rows/columns and assign an optional global shortcut. The default upper-half 4 × 2 workspace leaves the lower half alone. The settings diagram shows current vacant/occupied slots; hover occupied slots for window names. The shortcut places the active app in the first vacant fitting slot without moving other apps. The tray provides the same action. See [partial workspace details](docs/PARTIAL_WORKSPACE.md).
 
+**More → Fit into free space** discovers empty rectangles across the selected display without workspace configuration. Review the orange destination and physical pixel dimensions, use **Previous/Next** for up to three alternatives, then **Apply**. Only the selected window moves; Undo restores it. Changed window arrangements require reviewing a fresh preview and applying again. **Cancel** returns to manual placement; **Escape** closes the panel. See [free space details](docs/FREE_SPACE.md).
+
 - Grid: independently configurable **1–12 columns and rows**, default **6 × 6**.
 - Gap: **0–64 logical pixels**, default **8**. Adjacent placements share one gap; the same gap appears at outer edges. Gaps scale with the destination display.
 - Twelve built-in proportional placements: halves, quarters, thirds, and fill available space.

@@ -73,7 +73,7 @@ public partial class GridPanel : Window
         InitializeSidebar();
         PositionNearPointer();
         Deactivated += (_, _) => Dispatcher.BeginInvoke(DismissIfOutside);
-        Closed += (_, _) => { closing = true; Backdrop.Dispose(); GridControl.Desktop = null; snapshots.Clear(); visualTasks.Clear(); preview.Close(); };
+        Closed += (_, _) => { closing = true; ClearFreeSpace(); Backdrop.Dispose(); GridControl.Desktop = null; snapshots.Clear(); visualTasks.Clear(); preview.Close(); };
         Loaded += (_, _) => { Diagnostics.Write("Focus panel loaded."); Activate(); GridControl.Focus(); GridControl.PulseTarget(); };
         PreviewKeyDown += HandlePanelKey;
         ((UIElement)PresetsPopup.Child).PreviewKeyDown += HandlePanelKey;
@@ -135,6 +135,7 @@ public partial class GridPanel : Window
             SelectionLabel.ToolTip = error + " Ctrl-click again or use the window list to select a window underneath.";
             return;
         }
+        ClearFreeSpace();
         target = entry.Target;
         GridControl.Reset(); preview.Hide();
         GridControl.TargetBounds = entry.Bounds; GridControl.InvalidateVisual(); GridControl.PulseTarget();
@@ -227,13 +228,14 @@ public partial class GridPanel : Window
     private void ShowPreview(Region region)
     {
         if (closing || placementPending || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
-        ClearOverlap();
+        ClearFreeSpace(); ClearOverlap();
         var plan = BuildReflow(monitor, region);
         ShowInteractionPlan(monitor, plan);
     }
     internal void Commit(Region region)
     {
         if (MonitorPicker.SelectedItem is not DisplayMonitor monitor || closing || placementPending) return;
+        ClearFreeSpace();
         PendingPlacementRegion = region;
         var plan = BuildReflow(monitor, region);
         ShowInteractionPlan(monitor, plan);
@@ -242,7 +244,7 @@ public partial class GridPanel : Window
     private void MonitorChanged(object sender, SelectionChangedEventArgs e)
     {
         if (GridControl is null || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
-        preview.Hide();
+        ClearFreeSpace(); preview.Hide();
         ClearOverlap();
         GridControl.Desktop = snapshots[monitor.Device];
         UpdateInteractionFrames();
@@ -267,6 +269,7 @@ public partial class GridPanel : Window
             ready = false; ColumnsPicker.SelectedItem = settings.Columns; RowsPicker.SelectedItem = settings.Rows; ready = true;
             return;
         }
+        ClearFreeSpace();
         GridError.Text = "";
         cachedSelection = null; cachedPlan = null;
         settings.Columns = columns; settings.Rows = rows;
@@ -280,6 +283,13 @@ public partial class GridPanel : Window
         WindowStackPopup.IsOpen = false;
         if (PresetsPopup.IsOpen && PresetsPopup.PlacementTarget == anchor) { PresetsPopup.IsOpen = false; return; }
         PresetsPopup.IsOpen = false; PresetMenu.Children.Clear();
+        if (saved)
+        {
+            var fit = new Button { Content = "Fit into free space", Padding = new Thickness(10, 8, 10, 8), HorizontalContentAlignment = HorizontalAlignment.Left };
+            System.Windows.Automation.AutomationProperties.SetName(fit, "Fit into free space");
+            fit.Click += async (_, _) => await FindFreeSpaceAsync();
+            PresetMenu.Children.Add(fit);
+        }
         foreach (var preset in entries)
         {
             var line = new DockPanel { MinWidth = 220, LastChildFill = true };
@@ -344,7 +354,7 @@ public partial class GridPanel : Window
     {
         if (closing) return;
         Diagnostics.Write($"Dismiss Focus. Restore={restoreFocus}");
-        closing = true;
+        closing = true; ClearFreeSpace();
         PresetsPopup.IsOpen = GridPopup.IsOpen = WindowStackPopup.IsOpen = false;
         GridControl.Reset();
         preview.Hide(); Close();

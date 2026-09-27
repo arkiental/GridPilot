@@ -7,7 +7,7 @@ namespace GridPilot.UI;
 
 public partial class GridPanel
 {
-    internal bool IsOperationPending => placementPending;
+    internal bool IsOperationPending => placementPending || findingFreeSpace;
 
     internal void ShowExternalDestination(string device)
     {
@@ -31,6 +31,7 @@ public partial class GridPanel
         var entry = fresh.FirstOrDefault(e => Same(e.Target, requested));
         if (entry is null) return "The selected window is no longer visible.";
         capturedWindows = fresh; target = entry.Target;
+        ClearFreeSpace();
         ClearOverlap(); cachedSelection = null; cachedPlan = null;
         GridControl.Reset(); preview.Hide();
         GridControl.TargetBounds = entry.Bounds; GridControl.InvalidateVisual();

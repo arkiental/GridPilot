@@ -43,19 +43,31 @@
     </Border>
    </StackPanel>
    <local:SelectionGrid Grid.Row="1" x:Name="GridControl" AutomationProperties.Name="Desktop placement preview" ToolTip="Drag to resize overlapping windows into remaining cells. Alt-drag swaps exact sizes; wheel chooses among overlapping destinations. Ctrl-click selects a window; repeat to cycle overlaps. Ctrl+Shift-click cycles backward. Red is the selected window; orange is its destination."/>
-   <UniformGrid Grid.Row="2" Rows="1" Columns="5" Margin="14,8,14,2" Height="86">
+   <StackPanel Grid.Row="2">
+   <StackPanel x:Name="FreeSpaceControls" Visibility="Collapsed" Margin="0,5">
+   <WrapPanel HorizontalAlignment="Center">
+    <Button x:Name="FreeSpacePrevious" Content="Previous" Click="FreeSpacePreviousClick" AutomationProperties.Name="Previous free space candidate" Padding="8,4"/>
+    <TextBlock x:Name="FreeSpaceCount" Margin="8,0" VerticalAlignment="Center" FontSize="11"/>
+    <Button x:Name="FreeSpaceNext" Content="Next" Click="FreeSpaceNextClick" AutomationProperties.Name="Next free space candidate" Padding="8,4"/>
+    <Button x:Name="FreeSpaceApply" Content="Apply" Click="FreeSpaceApplyClick" AutomationProperties.Name="Apply free space destination" Margin="10,0,0,0" Padding="8,4"/>
+    <Button Content="Cancel" Click="FreeSpaceCancelClick" AutomationProperties.Name="Cancel free space preview" Margin="5,0,0,0" Padding="8,4"/>
+   </WrapPanel>
+   <TextBlock x:Name="FreeSpaceMessage" TextWrapping="Wrap" FontSize="11" Margin="8,5,8,0" AutomationProperties.LiveSetting="Polite"/>
+   </StackPanel>
+   <UniformGrid Rows="1" Columns="5" Margin="14,8,14,2" Height="86">
     <Button Style="{StaticResource PresetButton}" Click="LeftClick" AutomationProperties.Name="Place left half"><StackPanel><local:LayoutGlyph Kind="Left"/><TextBlock Text="Left" HorizontalAlignment="Center" Margin="0,8,0,0" FontSize="12"/></StackPanel></Button>
     <Button Style="{StaticResource PresetButton}" Click="RightClick" AutomationProperties.Name="Place right half"><StackPanel><local:LayoutGlyph Kind="Right"/><TextBlock Text="Right" HorizontalAlignment="Center" Margin="0,8,0,0" FontSize="12"/></StackPanel></Button>
     <Button x:Name="ThirdsButton" Style="{StaticResource PresetButton}" Click="ThirdsClick" AutomationProperties.Name="Thirds placements"><StackPanel><local:LayoutGlyph Kind="Thirds"/><TextBlock Text="Thirds" HorizontalAlignment="Center" Margin="0,8,0,0" FontSize="12"/></StackPanel></Button>
     <Button Style="{StaticResource PresetButton}" Click="FillClick" AutomationProperties.Name="Fill available space"><StackPanel><local:LayoutGlyph Kind="Fill"/><TextBlock Text="Fill" HorizontalAlignment="Center" Margin="0,8,0,0" FontSize="12"/></StackPanel></Button>
-    <Button x:Name="MoreButton" Style="{StaticResource PresetButton}" Click="MoreClick" AutomationProperties.Name="All saved placements"><StackPanel><local:LayoutGlyph Kind="More"/><TextBlock Text="More" HorizontalAlignment="Center" Margin="0,8,0,0" FontSize="12"/></StackPanel></Button>
+    <Button x:Name="MoreButton" Style="{StaticResource PresetButton}" Click="MoreClick" AutomationProperties.Name="More placement actions"><StackPanel><local:LayoutGlyph Kind="More"/><TextBlock Text="More" HorizontalAlignment="Center" Margin="0,8,0,0" FontSize="12"/></StackPanel></Button>
    </UniformGrid>
+   </StackPanel>
    <Border Grid.Row="3" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0" Padding="8,7,2,0">
     <DockPanel Height="29">
      <Button DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE713;" ToolTip="Settings" AutomationProperties.Name="Open settings" Click="SettingsClick"/>
      <Button x:Name="EmptySlotButton" DockPanel.Dock="Right" Content="Fill empty slot" FontSize="11" Padding="7,3" Margin="0,0,8,0" Click="EmptySlotClick" ToolTip="Place the selected window in available space without moving other windows"/>
      <Button x:Name="FooterUndoButton" DockPanel.Dock="Right" Style="{StaticResource IconButton}" Content="&#xE7A7;" ToolTip="Undo placement (Ctrl+Z)" AutomationProperties.Name="Undo last placement" Click="UndoClick" Margin="0,0,8,0"/>
-     <TextBlock x:Name="SelectionLabel" Text="Drag to place · Ctrl-click to select · Esc cancels" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis"/>
+     <TextBlock x:Name="SelectionLabel" AutomationProperties.LiveSetting="Polite" Text="Drag to place · Ctrl-click to select · Esc cancels" FontSize="11" VerticalAlignment="Center" Foreground="{DynamicResource MutedBrush}" TextTrimming="CharacterEllipsis"/>
     </DockPanel>
    </Border>
    <Popup x:Name="PresetsPopup" Placement="Top" StaysOpen="False" AllowsTransparency="True" Closed="PopupClosed">

@@ -256,7 +256,7 @@ public sealed class WindowService
     }
 
     internal async Task<PlacementResult> ArrangeAsync(DisplayMonitor expected, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements,
-        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>? expectedOriginals = null)
+        IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>? expectedOriginals = null, Action? verify = null, Action? verifyResult = null)
     {
         if (Busy) return new(false, "A placement is already in progress.");
         if (HasUncertainRequests) return new(false, "A previous native request is still unverified. Retry Undo before another placement.");
@@ -291,6 +291,7 @@ public sealed class WindowService
                 expectedOriginals.Any(o => o.Target.Handle == placements[1].Target.Handle && o.Target.ProcessId == placements[1].Target.ProcessId && o.Bounds == placements[0].Bounds);
             void CheckOccupancy()
             {
+                verify?.Invoke();
                 if (expectedOriginals is null) return; // Legacy Auto arrange intentionally permits excluded windows underneath.
                 foreach (var entry in captureCatalog())
                 {
@@ -348,6 +349,7 @@ public sealed class WindowService
             CheckOriginals(true); CheckOccupancy();
             if (placements.Any(p => !IsSameWindow(p.Target) || !VisibleBounds(p.Target.Handle).Near(p.Bounds)))
                 throw new InvalidOperationException("A window changed size while arranging.");
+            verifyResult?.Invoke();
             batchUndo = snapshots; undo = null;
             return new(true, $"Arranged {placements.Count} windows. Undo restores the entire arrangement.");
         }

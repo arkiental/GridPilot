@@ -1,5 +1,17 @@
 # Validation
 
+## Fit into free space (issue #34)
+
+On 2026-09-27, the Release build with `-warnaserror` completed with zero warnings/errors; core checks passed **5,127 assertions**. The focused `dotnet run --project tests/GridPilot.Tests -c Release --no-build -- --free-space` suite passed **5,149 assertions** on one **1920 × 1080 display at 100%**. No mouse or keyboard input was injected; placement tests moved only their owned fixtures.
+
+Core coverage includes exhaustive small-coordinate largest-rectangle comparison, empty/full displays, overlapping and duplicate obstacles, arbitrary edges, narrow fragments, touching edges, zero/nonzero gaps, negative origins, cross-display clipping, 100/150/200% DPI, minimums, ratios, ordering, cancellation and work-limit failure. The dense synthetic catalog of 250 obstacles reached the explicit search limit in **129–144 ms** across these runs; this is local measurement, not a latency guarantee.
+
+Owned native fixtures cover exact target-only placement, unchanged same-app neighbors, disabled-window occupancy, search without movement, Undo, native minimum refusal/restoration, changed and newly appearing obstacles, detected concurrent changes after dispatch, stale HWND/PID, closed targets, cancellation while a panel search is pending, and stale Apply refreshing without submission. Existing native placement tests reached and passed their single-cell and minimum-query coverage.
+
+The required full native command was run and **did not pass**: the unchanged Auto arrange test `revised preview obeys observed app dimensions` requires a feasible 1600 × 1200 frame, exceeding this display's work area. The coordinator reproduced the same failure on unmodified `origin/main` on this desktop. Subsequent full-suite tests therefore did not run in that invocation; the focused free-space suite was run separately.
+
+Manual coverage remains: mixed-monitor hardware/DPI changes, disconnected-display interaction, 8K at 100%, real elevated/irregular app behavior, screen-reader announcements, high contrast and small-display visual inspection. Native calls cannot atomically prevent unrelated applications moving themselves; detected conflicts trigger verified restoration.
+
 ## Consolidated version, 26 September
 
 PR #31 consolidates #23, #25, #28, #29, #31 and #33 on the Smoked Glass main baseline. All six original PR heads are ancestors of the integration branch; the previously merged UI branch has the same tree as that baseline. Merge resolutions retain both visual shortcut editing and partial-workspace settings, their validation paths, and every native test mode. The default full suite now includes the shortcut-editor fixtures.

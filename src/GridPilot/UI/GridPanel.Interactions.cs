@@ -80,6 +80,7 @@ public partial class GridPanel
     }
     private void StartSwap(int x, int y)
     {
+        ClearFreeSpace();
         pendingPlacements.Clear(); swapSource = null; swapCandidates = []; swapIndex = -1; preview.Hide();
         if (placementPending || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
         PendingPlacementRegion = null;
@@ -135,6 +136,7 @@ public partial class GridPanel
     internal void CompletePlacement(PlacementResult result, bool canUndo)
     {
         if (closing) return;
+        ClearFreeSpace();
         placementPending = false; GridControl.IsEnabled = true;
         cachedSelection = null; cachedPlan = null;
         pendingPlacements.Clear(); GridControl.Reset();
@@ -180,6 +182,8 @@ public partial class GridPanel
     }
     private void EmptySlotClick(object sender, RoutedEventArgs e)
     {
+        if (findingFreeSpace) return;
+        ClearFreeSpace();
         if (!placementPending && MonitorPicker.SelectedItem is DisplayMonitor monitor) { BeginPlacement(); EmptySlotRequested?.Invoke(target, monitor.Device); }
     }
     private void TitleDrag(object sender, MouseButtonEventArgs e)
