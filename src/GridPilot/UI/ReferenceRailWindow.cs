@@ -7,8 +7,9 @@ namespace GridPilot.UI;
 
 internal sealed class ReferenceRailWindow : Window
 {
-    private sealed record Card(WindowTarget Target, WindowThumbnail Preview, TextBlock Status, Border Root) { internal bool Closed { get; set; } }
+    private sealed record Card(WindowTarget Target, WindowThumbnail Preview, TextBlock Status, Border Root) { internal bool Closed { get; set; } internal CancellationTokenSource Cancellation { get; } = new(); }
     private readonly List<Card> cards = [];
+    private readonly SemaphoreSlim iconSlots = new(2);
     private readonly StackPanel list = new();
     private readonly TextBlock message = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6) };
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
@@ -17,6 +18,8 @@ internal sealed class ReferenceRailWindow : Window
     private nint initialSource;
     internal int RegistrationCount => cards.Count(c => c.Preview.HasRegistration);
     internal int CardCount => cards.Count;
+    internal bool RefreshRunning => timer.IsEnabled;
+    internal WindowThumbnail PreviewAt(int index) => cards[index].Preview;
     internal ReferenceRailWindow()
     {
         Title = "Reference rail"; Width = 340; Height = 640; MinWidth = 240; MinHeight = 240;
@@ -25,7 +28,7 @@ internal sealed class ReferenceRailWindow : Window
         var root = new DockPanel { Margin = new Thickness(8) };
         var toolbar = new WrapPanel(); DockPanel.SetDock(toolbar, Dock.Top); root.Children.Add(toolbar);
         toolbar.Children.Add(Action("Add crop", Pick)); toolbar.Children.Add(Action("Hide rail", Hide));
-        toolbar.Children.Add(Action("Remove all", () => { foreach (var c in cards) c.Preview.Dispose(); cards.Clear(); list.Children.Clear(); UpdateStatus(); }));
+        toolbar.Children.Add(Action("Remove all", () => { foreach (var c in cards) { c.Cancellation.Cancel(); c.Preview.Dispose(); } cards.Clear(); list.Children.Clear(); UpdateStatus(); }));
         var top = new CheckBox { Content = "Always on top", IsChecked = true, Margin = new Thickness(5), VerticalAlignment = VerticalAlignment.Center };
         top.Click += (_, _) => Topmost = top.IsChecked == true; toolbar.Children.Add(top);
         toolbar.Children.Add(Action("Snap left", () => Constrain(-1))); toolbar.Children.Add(Action("Snap right", () => Constrain(1)));
@@ -43,7 +46,7 @@ internal sealed class ReferenceRailWindow : Window
         var button = new Button { Content = name, Margin = new Thickness(3), Padding = new Thickness(7, 4, 7, 4) };
         System.Windows.Automation.AutomationProperties.SetName(button, name); button.Click += (_, _) => action(); return button;
     }
-    internal void Shutdown() { shutdown = true; Close(); }
+    internal void Shutdown() { shutdown = true; foreach (var c in cards) c.Cancellation.Cancel(); Close(); }
     private nint Hook(nint hwnd, int msg, nint w, nint l, ref bool handled)
     { if (msg is 0x7e or 0x1a or 0x2e0 or 0x232) Dispatcher.BeginInvoke(() => Constrain(0)); return 0; }
     private void Tick(object? sender, EventArgs e) => Refresh();
@@ -90,17 +93,20 @@ internal sealed class ReferenceRailWindow : Window
         var card = new Card(target, preview, status, border); cards.Add(card); list.Children.Add(border); _ = LoadIcon(card, icon);
         actions.Children.Add(Action("Open source", () => { if (card.Closed || !WindowService.IsSameWindow(target)) { Refresh(); return; } if (Native.IsIconic(target.Handle)) Native.ShowWindowAsync(target.Handle, 9); Native.SetForegroundWindow(target.Handle); }));
         actions.Children.Add(Action("Edit crop", () => { if (card.Closed || !WindowService.IsSameWindow(target)) { Refresh(); return; } var editor = new ReferenceCropEditor(target, preview.Crop!.Value) { Owner = this }; if (editor.ShowDialog() == true && cards.Contains(card) && WindowService.IsSameWindow(target)) preview.Crop = editor.Result; Refresh(); }));
-        actions.Children.Add(Action("Remove", () => { preview.Dispose(); cards.Remove(card); list.Children.Remove(border); UpdateStatus(); }));
+        actions.Children.Add(Action("Remove", () => { card.Cancellation.Cancel(); preview.Dispose(); cards.Remove(card); list.Children.Remove(border); UpdateStatus(); }));
         UpdateStatus(); Refresh();
     }
     private async Task LoadIcon(Card card, Image icon)
     {
         try
         {
-            var visual = await Task.Run(() => AppVisual.Read(card.Target));
+            await iconSlots.WaitAsync(card.Cancellation.Token);
+            AppVisual visual;
+            try { card.Cancellation.Token.ThrowIfCancellationRequested(); visual = await Task.Run(() => AppVisual.Read(card.Target)); }
+            finally { iconSlots.Release(); }
             if (!shutdown && cards.Contains(card) && !card.Closed && WindowService.IsSameWindow(card.Target)) icon.Source = visual.Icon;
         }
-        catch (Exception ex) when (ex is System.Runtime.InteropServices.COMException or ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
+        catch (Exception ex) when (ex is OperationCanceledException or System.Runtime.InteropServices.COMException or ArgumentException or InvalidOperationException or System.ComponentModel.Win32Exception or IOException or UnauthorizedAccessException)
         { Diagnostics.Write("Reference icon unavailable: " + ex.Message); }
     }
     private void Pick()
@@ -130,5 +136,7 @@ internal sealed class ReferenceRailWindow : Window
         }
     }
 }
+
+
 
 

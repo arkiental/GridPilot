@@ -24,6 +24,7 @@ internal sealed class ReferenceCropEditor : Window
     private readonly ScrollViewer scrolling;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private Point? start;
+    private ReferenceCrop gestureBaseline;
     private bool updating, validFields = true;
     internal ReferenceCrop Result { get; private set; }
     internal ReferenceCropEditor(WindowTarget target, ReferenceCrop crop)
@@ -51,8 +52,9 @@ internal sealed class ReferenceCropEditor : Window
         scrolling.ScrollChanged += (_, _) => Refresh();
         outline.SetResourceReference(Shape.StrokeProperty, "AccentBrush"); overlay.Children.Add(outline);
         popup = new Popup { PlacementTarget = full, Placement = PlacementMode.Relative, AllowsTransparency = true, StaysOpen = true, Child = overlay, Focusable = false };
-        overlay.MouseLeftButtonDown += (_, e) => { start = e.GetPosition(overlay); overlay.CaptureMouse(); e.Handled = true; };
-        overlay.MouseMove += (_, e) => { if (start is not { } a) return; var next = ReferenceCrop.FromPoints(a, e.GetPosition(overlay), Fitted()); if (next.Valid) { Result = next; WriteFields(); Draw(); } };
+        overlay.MouseLeftButtonDown += (_, e) => { gestureBaseline = Result; start = e.GetPosition(overlay); overlay.CaptureMouse(); e.Handled = true; };
+        overlay.MouseMove += (_, e) => { if (start is not { } a || e.LeftButton != MouseButtonState.Pressed) return; var next = ReferenceCrop.FromPoints(a, e.GetPosition(overlay), Fitted()); if (next.Valid) { Result = next; WriteFields(); Draw(); } };
+        overlay.LostMouseCapture += (_, _) => { if (start is null) return; start = null; Result = gestureBaseline; WriteFields(); Refresh(); };
         overlay.MouseLeftButtonUp += (_, _) => { start = null; overlay.ReleaseMouseCapture(); Refresh(); };
         Loaded += (_, _) => { Clamp(); popup.IsOpen = true; Refresh(); WriteFields(); timer.Start(); };
         timer.Tick += Tick; SizeChanged += (_, _) => Refresh(); LocationChanged += (_, _) => { popup.HorizontalOffset += .01; popup.HorizontalOffset -= .01; };
@@ -102,5 +104,6 @@ internal sealed class ReferenceCropEditor : Window
         Result = next; Refresh();
     }
 }
+
 
 
