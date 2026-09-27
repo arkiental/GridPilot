@@ -389,7 +389,7 @@ public partial class App : Application
     {
         exiting = true;
         referenceRail?.Shutdown();
-                panel?.Dismiss(false); settingsWindow?.Close(); arrangeWindow?.Close(); scenesWindow?.Close();
+        panel?.Dismiss(false); settingsWindow?.Close(); arrangeWindow?.Close(); scenesWindow?.Close();
         if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook);
         hotkeys?.Dispose();
         if (tray is not null) { tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); }
