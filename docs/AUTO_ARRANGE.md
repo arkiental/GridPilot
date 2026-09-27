@@ -74,3 +74,11 @@ Drag an included window from the preview or catalog onto another included window
 Dropping edits only the proposal. The dragged window's previous area becomes empty; other windows retain their exact frames. Repeat on another frame to subdivide further. Click **Accept layout** to move the windows, then use the existing grouped **Undo** to restore their previous positions. Reroll or changing arrangement rules replaces the edited proposal.
 
 A split uses the configured gap at the target display's DPI and preserves the target frame's outer edges. Minimum sizes, locked ratios and saved places are enforced for both windows; impossible splits show a refusal and leave the proposal unchanged. Clear a saved place before splitting that window. The four cells are directional halves, not quarter-sized destinations or persistent saved subgrids.
+
+## Elastic Layouts
+
+Choose **Adjust dividers** to rebalance an exact rectangular split proposal. Orange handles resize all incident frames, including the three-window T junction, while preserving outer edges and the configured physical-pixel gutters. The mode hides plan DWM surfaces so native content cannot cover guides; leave the mode to restore live content. The content has not reflowed until acceptance.
+
+Drag and release inside the preview to retain the draft. Escape, lost capture, resizing the editor, or interface scale changes cancel the gesture. Tab to a handle and use arrow keys for 8 physical-pixel steps. **Divider px** accepts an absolute physical-pixel coordinate, including negative coordinates on displays left/above the primary. Pointer, keyboard and numeric edits share the same feasible interval. At a limit, the status identifies the limiting window and rule; fixed saved places and locked ratios are never relaxed. Unsupported gaps/holes/overlaps and non-slicing layouts expose no approximate handles. Rule changes, swaps, splits and rerolls rebuild topology.
+
+Only **Accept layout** invokes the existing verified batch placement and grouped Undo. Native dynamic size refusals continue through existing verification/recovery. There are no persistent HWND links, border hooks, or background enforcement. Native maxima are not currently supplied by the shared placement model; unknown application restrictions are verified on apply.

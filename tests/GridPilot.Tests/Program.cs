@@ -57,6 +57,7 @@ internal static partial class Program
                     try
                     {
                         if (args.Contains("--shortcuts")) await ShortcutEditorTests();
+                        else if (args.Contains("--elastic")) await ElasticFixtureTests();
                         else if (args.Contains("--minimums")) await WindowMinimumNativeTests();
                         else if (args.Contains("--panel-lifecycle")) await PanelPlacementControllerNativeTests();
                         else if (args.Contains("--free-space")) await FreeSpaceNativeTests();

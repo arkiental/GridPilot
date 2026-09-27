@@ -111,7 +111,7 @@ internal sealed partial class AutoArrangeWindow
         element.MouseLeftButtonUp += (_, _) => down = null;
         element.MouseMove += (_, e) =>
         {
-            if (applying || down is not { } origin || e.LeftButton != MouseButtonState.Pressed) return;
+            if (adjustDividers.IsChecked == true || applying || down is not { } origin || e.LeftButton != MouseButtonState.Pressed) return;
             var point = e.GetPosition(element);
             if (Math.Abs(point.X - origin.X) < SystemParameters.MinimumHorizontalDragDistance && Math.Abs(point.Y - origin.Y) < SystemParameters.MinimumVerticalDragDistance) return;
             down = null;
@@ -159,6 +159,7 @@ internal sealed partial class AutoArrangeWindow
     }
     private void RenderPlan()
     {
+        AbandonElasticCapture();
         ClearSplitPreview(); DisposePlanViews(); canvas.Children.Clear();
         foreach (var region in settings.ArrangementAreas.Where(a => a.Monitor == monitor.Device).Select(a => a.Region).Concat(CurrentPlaces().Select(p => p.Region)).Distinct())
         {
@@ -177,13 +178,14 @@ internal sealed partial class AutoArrangeWindow
             Canvas.SetLeft(frame, (slot.Bounds.Left - monitor.Work.Left) * scale); Canvas.SetTop(frame, (slot.Bounds.Top - monitor.Work.Top) * scale); canvas.Children.Add(frame);
             planViews.Add((row, thumbnail, frame)); WireSelectionAndSwap(frame, row);
         }
-        UpdateSelection(); UpdateThumbnails();
+        RenderDividers(); UpdateSelection(); UpdateThumbnails();
     }
     private bool ValidateLiveTargets()
     {
         bool valid = !rows.Where(r => r.Include.IsChecked == true).Any(r => PreviewWindows.Validate(r.Entry) is not null);
         applyButton.IsEnabled = !applying && !detectingMinimums && valid && plan.Success;
         reroll.IsEnabled = !applying && !detectingMinimums && valid && plan.Success && candidates.Count > 1;
+        if (!valid) CancelElastic();
         if (!valid) status.Text = "An included window is unavailable. Select it to exclude it, or wait for its dialog to close.";
         else if (targetsUnavailable) status.Text = "Windows are available again. Your proposal is unchanged.";
         targetsUnavailable = !valid;
@@ -203,7 +205,7 @@ internal sealed partial class AutoArrangeWindow
             if (content.Template.FindName("PART_ScrollContentPresenter", content) is ScrollContentPresenter outer) clip.Intersect(Viewport(outer));
             var previewClip = Rect.Intersect(clip, Viewport(canvas));
             foreach (var view in planViews)
-                if (view.Row != splitTarget) view.Thumbnail.Update(this, handle, previewClip);
+                if (view.Row != splitTarget && adjustDividers.IsChecked != true) view.Thumbnail.Update(this, handle, previewClip); else view.Thumbnail.Dispose();
             if (sidebar.Template.FindName("PART_ScrollContentPresenter", sidebar) is ScrollContentPresenter presenter)
             {
                 var sidebarClip = Rect.Intersect(clip, Viewport(presenter));

@@ -99,7 +99,7 @@ internal sealed partial class AutoArrangeWindow : Window
             if (e.ButtonState == MouseButtonState.Pressed) { DragMove(); e.Handled = true; }
         };
         header.Children.Add(new TextBlock { Text = monitor.ShortLabel + " · select a window, tune its space, then accept", Margin = new(0, 5, 0, 8) });
-        var toolbar = new WrapPanel(); header.Children.Add(toolbar); toolbar.Children.Add(layout); toolbar.Children.Add(reroll);
+        var toolbar = new WrapPanel(); header.Children.Add(toolbar); toolbar.Children.Add(layout); toolbar.Children.Add(reroll); InitializeElastic(toolbar);
         var manage = ActionButton("Saved places…", ManagePlaces); toolbar.Children.Add(manage);
         var scalePicker = new ComboBox { ItemsSource = new[] { "UI Auto", "UI 100%", "UI 150%", "UI 200%", "UI 250%" }, SelectedIndex = settings.ArrangementUiScale == 0 ? 0 : settings.ArrangementUiScale == 1 ? 1 : settings.ArrangementUiScale == 1.5 ? 2 : settings.ArrangementUiScale == 2 ? 3 : 4, Width = 105, Margin = new(10, 5, 0, 5) };
         var viewOptions = new Expander { Header = "View options", Content = scalePicker, Margin = new(12, 6, 0, 0) }; viewOptions.SetResourceReference(ForegroundProperty, "TextBrush"); toolbar.Children.Add(viewOptions);
@@ -126,6 +126,7 @@ internal sealed partial class AutoArrangeWindow : Window
         SizeChanged += (_, _) => { body.Height = Math.Max(340, ActualHeight / uiScale - 290); body.ColumnDefinitions[1].Width = new GridLength(Math.Clamp(ActualWidth / uiScale * .29, 210, 330)); };
         scalePicker.SelectionChanged += (_, _) =>
         {
+            CancelElastic();
             settings.ArrangementUiScale = scalePicker.SelectedIndex switch { 1 => 1, 2 => 1.5, 3 => 2, 4 => 2.5, _ => 0 };
             uiScale = settings.ArrangementUiScale == 0 ? (monitor.Work.Width >= 6000 && monitor.Dpi <= 120 ? 2 : 1) : settings.ArrangementUiScale;
             root.LayoutTransform = new ScaleTransform(uiScale, uiScale); MinWidth = Math.Min(740 * uiScale, availableWidth); MinHeight = Math.Min(560 * uiScale, availableHeight);
@@ -156,7 +157,7 @@ internal sealed partial class AutoArrangeWindow : Window
         Loaded += (_, _) => { thumbnailTimer.Start(); UpdateThumbnails(); foreach (var row in rows) _ = LoadVisualAsync(row); MinimumDetection = DetectMinimumsAsync(); };
         Closed += (_, _) => { closing = true; thumbnailTimer.Stop(); visualCancellation.Cancel(); DisposePlanViews(); foreach (var row in rows) row.Thumbnail?.Dispose(); backdrop?.Dispose(); };
         initialized = true; ShowInspector(); Recalculate(); RefreshUndo();
-        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { Close(); e.Handled = true; } };
+        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape) { if (!CancelElastic()) Close(); e.Handled = true; } };
     }
 
     private async Task DetectMinimumsAsync()
@@ -302,6 +303,7 @@ internal sealed partial class AutoArrangeWindow : Window
     private void Recalculate()
     {
         if (!initialized || applying) return;
+        CancelElastic();
         try
         {
             var items = new List<ArrangementItem>();
