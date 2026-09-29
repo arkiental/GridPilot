@@ -25,6 +25,8 @@ internal sealed class DrawPlacementWindow : Window
     private HwndSource? source;
     private double scaleX, scaleY;
     private string? notice;
+    private bool shiftHeld, pendingShiftSwap, pointerInsideDisplay;
+    private (int ScreenX, int ScreenY, int ModelX, int ModelY)? warpedCorner;
     internal DisplayMonitor Display { get; }
     internal DrawPlacement Drawing { get; }
     internal bool CanApply => !detecting && Drawing.CanApply(minimumWidth, minimumHeight);
@@ -38,6 +40,7 @@ internal sealed class DrawPlacementWindow : Window
     internal DrawPlacementWindow(DrawPlacementSession session, DisplayMonitor display, PixelRect original, BitmapSource? desktop)
     {
         this.session = session; Display = display; Drawing = new(display.Work);
+        Drawing.SetObstacles(session.Obstacles.Where(b => b.Left < display.Work.Right && b.Right > display.Work.Left && b.Top < display.Work.Bottom && b.Bottom > display.Work.Top).ToArray());
         scaleX = scaleY = 96d / display.Dpi;
         minimumWidth = Math.Max(8, Native.GetSystemMetricsForDpi(34, display.Dpi));
         minimumHeight = Math.Max(8, Native.GetSystemMetricsForDpi(35, display.Dpi));
@@ -79,13 +82,23 @@ internal sealed class DrawPlacementWindow : Window
         };
         Loaded += (_, _) => { UpdateMetrics(); FlushPreview(); Focus(); };
         SizeChanged += (_, _) => UpdateMetrics();
-        Deactivated += (_, _) => session.CheckActivation();
+        Activated += (_, _) => ResetModifierKeys();
+        Deactivated += (_, _) => { ResetModifierKeys(); session.CheckActivation(); };
         Closed += (_, _) =>
         { UnsubscribeRendering(); background.Source = null; source?.RemoveHook(WindowMessage); session.Cancel(false); };
         PreviewKeyDown += OnKey;
+        PreviewKeyUp += (_, e) =>
+        {
+            var key = e.Key == Key.System ? e.SystemKey : e.Key;
+            if (key is Key.LeftCtrl or Key.RightCtrl) SetAvoidOverlaps(Keyboard.Modifiers.HasFlag(ModifierKeys.Control));
+            if (key is Key.LeftShift or Key.RightShift) HandleShift(Keyboard.Modifiers.HasFlag(ModifierKeys.Shift), false);
+        };
         MouseLeftButtonDown += (_, e) =>
         {
-            if (waitingToApply || !ReadPointer()) return;
+            if (waitingToApply) return;
+            warpedCorner = null;
+            if (!ReadPointer()) return;
+            SetAvoidOverlaps(Keyboard.Modifiers.HasFlag(ModifierKeys.Control));
             keyboard = false;
             if (Begin(pointerX, pointerY) && !canvas.CaptureMouse()) ResetSelection();
             e.Handled = true;
@@ -94,15 +107,16 @@ internal sealed class DrawPlacementWindow : Window
         {
             // OS cursor is immediate. Only a selection needs a managed update.
             if (keyboard || waitingToApply || !Drawing.IsDrawing) return;
+            SetAvoidOverlaps(Keyboard.Modifiers.HasFlag(ModifierKeys.Control));
             if (ReadPointer()) Update(pointerX, pointerY);
         };
         MouseLeftButtonUp += (_, e) =>
         {
             if (keyboard || !Drawing.IsDrawing || waitingToApply) return;
+            SetAvoidOverlaps(Keyboard.Modifiers.HasFlag(ModifierKeys.Control));
             bool located = ReadPointer(); Drawing.Update(pointerX, pointerY);
             releasing = true; canvas.ReleaseMouseCapture(); releasing = false;
-            if (!located || pointerX < Display.Bounds.Left || pointerX >= Display.Bounds.Right ||
-                pointerY < Display.Bounds.Top || pointerY >= Display.Bounds.Bottom) ResetSelection();
+            if (!located || !pointerInsideDisplay) ResetSelection();
             else Apply();
             e.Handled = true;
         };
@@ -130,16 +144,24 @@ internal sealed class DrawPlacementWindow : Window
     }
     internal void SetSnapping()
     { Drawing.SetSnapping(session.Snapping.Enabled, session.Snapping.Size); UpdateHint(); QueuePreview(); }
+    internal void SetAvoidOverlaps(bool enabled)
+    {
+        if (waitingToApply || Drawing.AvoidOverlaps == enabled) return;
+        Drawing.SetAvoidOverlaps(enabled); notice = null; UpdateHint(); QueuePreview();
+    }
     private void UpdateHint()
     {
         hint.Text = $"Minimum {minimumWidth} × {minimumHeight} px{(estimatedMinimum ? " · estimated" : "")} · Snap {(session.Snapping.Enabled ? "ON" : "OFF")} · {session.Snapping.Size} px" +
             $"\n{(session.Snapping.Toggle is null ? "Toggle unassigned" : ShortcutBox.Format(session.Snapping.Toggle) + " toggles snap during a drag")} · Esc cancels" +
-            "\nArrows move · Shift ×10 · Enter sets corners · Tab changes display";
+            $"\nCtrl: free space {(Drawing.AvoidOverlaps ? "ON" : "OFF")} · Shift: swap corners" +
+            "\nArrows move · Alt ×10 · Enter sets corners · Tab changes display";
     }
     internal bool Begin(int x, int y)
     {
         session.SelectDisplay(this); notice = null; pointerX = x; pointerY = y;
-        bool started = Drawing.Begin(x, y); QueuePreview(); return started;
+        bool started = Drawing.Begin(x, y);
+        if (!started && Drawing.AvoidOverlaps) notice = "Hold Ctrl and start in empty space between windows.";
+        QueuePreview(); return started;
     }
     internal void Update(int x, int y)
     { if (waitingToApply) return; pointerX = x; pointerY = y; Drawing.Update(x, y); QueuePreview(); }
@@ -148,19 +170,54 @@ internal sealed class DrawPlacementWindow : Window
         if (!Drawing.HasMovement) { ResetSelection(); return; }
         if (detecting) { waitingToApply = true; QueuePreview(); return; }
         if (PlacementBounds is not { } bounds)
-        { notice = "The app’s minimum size does not fit this display. Choose another display."; ResetSelection(false); return; }
+        { notice = Drawing.AvoidOverlaps ? "The app’s minimum size cannot fit here without overlapping. Start in a larger free area, or release Ctrl." : "The app’s minimum size does not fit this display. Choose another display."; ResetSelection(false); return; }
         FlushPreview(); session.Commit(this, bounds);
     }
     internal void ResetSelection(bool clearNotice = true)
     {
-        waitingToApply = false; if (clearNotice) notice = null;
+        ResetModifierKeys();
+        waitingToApply = false; warpedCorner = null; if (clearNotice) notice = null;
         Drawing.Cancel(); releasing = true; canvas.ReleaseMouseCapture(); releasing = false; QueuePreview();
     }
     private bool ReadPointer()
     {
         using var dpi = new Native.DpiScope();
         if (!Native.GetCursorPos(out var point)) return false;
-        pointerX = point.X; pointerY = point.Y; return true;
+        (pointerX, pointerY) = PointerCoordinates(point.X, point.Y); return true;
+    }
+    internal (int X, int Y) PointerCoordinates(int x, int y)
+    {
+        pointerInsideDisplay = x >= Display.Bounds.Left && x < Display.Bounds.Right && y >= Display.Bounds.Top && y < Display.Bounds.Bottom;
+        if (warpedCorner is { } warp && x == warp.ScreenX && y == warp.ScreenY) return (warp.ModelX, warp.ModelY);
+        warpedCorner = null; return (x, y);
+    }
+    internal bool HandleShift(bool down, bool repeated)
+    {
+        if (!down)
+        {
+            bool swap = shiftHeld && pendingShiftSwap;
+            ResetModifierKeys(); return swap && SwapCorner();
+        }
+        if (shiftHeld || repeated) return false;
+        shiftHeld = true;
+        // Existing Shift-bearing snap chords must not also move the cursor.
+        // For those configurations, a bare Shift swaps on release instead.
+        if (session.Snapping.Toggle is { } toggle && (toggle.Modifiers & (uint)ModifierKeys.Shift) != 0)
+        { pendingShiftSwap = Drawing.IsDrawing; return false; }
+        return SwapCorner();
+    }
+    internal void ResetModifierKeys() { shiftHeld = false; pendingShiftSwap = false; }
+    private bool SwapCorner()
+    {
+        if (waitingToApply || !CanApply || Drawing.OppositeCorner(minimumWidth, minimumHeight) is not { } corner) return false;
+        // Visible rectangles have exclusive right/bottom edges. Keep the OS
+        // pointer on this monitor while retaining the exact model corner.
+        int x = Math.Clamp(corner.X, Display.Bounds.Left, Display.Bounds.Right - 1);
+        int y = Math.Clamp(corner.Y, Display.Bounds.Top, Display.Bounds.Bottom - 1);
+        if (!session.MoveCursor(x, y)) { notice = "Windows could not move the cursor. The rectangle is unchanged."; QueuePreview(); return false; }
+        Drawing.SwapCorners(minimumWidth, minimumHeight);
+        pointerX = corner.X; pointerY = corner.Y; warpedCorner = (x, y, corner.X, corner.Y);
+        notice = null; QueuePreview(); return true;
     }
     internal (int X, int Y) KeyboardPoint(int cursorX, int cursorY) => Drawing.Contains(cursorX, cursorY)
         ? (cursorX, cursorY) : (Math.Clamp(pointerX, Display.Work.Left, Display.Work.Right), Math.Clamp(pointerY, Display.Work.Top, Display.Work.Bottom));
@@ -173,11 +230,16 @@ internal sealed class DrawPlacementWindow : Window
     {
         var toggle = session.Snapping.Toggle;
         if (!Drawing.IsDrawing || waitingToApply || toggle is null || toggle.Modifiers != (uint)modifiers || toggle.Key != (uint)KeyInterop.VirtualKeyFromKey(key)) return false;
+        pendingShiftSwap = false;
         if (!repeated) session.ToggleSnapping(); return true;
     }
     private void OnKey(object sender, KeyEventArgs e)
     {
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key is Key.LeftCtrl or Key.RightCtrl) { SetAvoidOverlaps(true); e.Handled = true; return; }
+        if (key is Key.LeftShift or Key.RightShift) { HandleShift(true, e.IsRepeat); e.Handled = true; return; }
+        pendingShiftSwap = false;
+        SetAvoidOverlaps(Keyboard.Modifiers.HasFlag(ModifierKeys.Control));
         if (HandleDrawingToggle(key, Keyboard.Modifiers, e.IsRepeat)) { e.Handled = true; return; }
         if (key == Key.Escape) session.Cancel(true);
         else if (key == Key.Tab) { ResetSelection(); session.NextDisplay(this); }
@@ -193,7 +255,7 @@ internal sealed class DrawPlacementWindow : Window
         {
             if (!keyboard && !Drawing.IsDrawing) ReadKeyboardPointer();
             keyboard = true;
-            int step = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 10 : 1;
+            int step = Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) ? 10 : 1;
             pointerX = Math.Clamp(pointerX + (key == Key.Left ? -step : key == Key.Right ? step : 0), Display.Work.Left, Display.Work.Right);
             pointerY = Math.Clamp(pointerY + (key == Key.Up ? -step : key == Key.Down ? step : 0), Display.Work.Top, Display.Work.Bottom);
             Update(pointerX, pointerY);
@@ -217,7 +279,9 @@ internal sealed class DrawPlacementWindow : Window
         if (!dirty || session.IsClosed) return;
         dirty = false; PreviewUpdates++;
         var placed = PlacementBounds; var min = MinimumBounds;
-        visual.Update(Drawing.Bounds, min, placed, keyboard ? Local(pointerX, pointerY) : null);
+        // Even the secondary/raw outline must not imply an overlapping option
+        // while Ctrl is held.
+        visual.Update(Drawing.AvoidOverlaps ? placed : Drawing.Bounds, min, placed, keyboard ? Local(pointerX, pointerY) : null);
         var workStart = Local(Display.Work.Left, Display.Work.Top); var workEnd = Local(Display.Work.Right, Display.Work.Bottom);
         double bannerX = workStart.X + 16, bannerY = workStart.Y + 16;
         if (placed is { } b)
@@ -234,14 +298,14 @@ internal sealed class DrawPlacementWindow : Window
         }
         Canvas.SetLeft(banner, bannerX); Canvas.SetTop(banner, bannerY);
         SetText(status, notice ?? (waitingToApply ? "Finishing the minimum-size check…" : Drawing.IsDrawing
-            ? min is null ? "Minimum size does not fit this display." : keyboard ? "Press Enter to place the orange preview." : "Release to place the orange preview."
+            ? min is null ? Drawing.AvoidOverlaps ? "Minimum size does not fit this free space." : "Minimum size does not fit this display." : keyboard ? "Press Enter to place the orange preview." : "Release to place the orange preview."
             : "Drag between corners. Cyan marks the minimum size."));
         if (detecting) SetText(hint, "Checking app minimum size… · Esc cancels");
         dimensions.Visibility = placed is not null ? Visibility.Visible : Visibility.Collapsed;
         minimumLabel.Visibility = min is not null ? Visibility.Visible : Visibility.Collapsed;
         if (placed is { } frame)
         {
-            SetText(dimensions, $"{frame.Width} × {frame.Height} px" + (Drawing.Bounds != placed ? " · minimum applied" : ""));
+            SetText(dimensions, $"{frame.Width} × {frame.Height} px" + (Drawing.AvoidOverlaps ? " · free space" : Drawing.Bounds != placed ? " · minimum applied" : ""));
             var corner = Local(frame.Left, frame.Bottom);
             Canvas.SetLeft(dimensions, Math.Clamp(corner.X, workStart.X, Math.Max(workStart.X, workEnd.X - 310)));
             Canvas.SetTop(dimensions, Math.Min(corner.Y + 8, workEnd.Y - 40));

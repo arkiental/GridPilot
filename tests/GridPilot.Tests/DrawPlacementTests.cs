@@ -46,6 +46,7 @@ internal static partial class Program
 
     private static void DrawPlacementTests()
     {
+        DrawModifierGeometryTests();
         var drawing = new DrawPlacement(new(-1920, -300, 0, 780));
         Assert(!drawing.Begin(1, 0) && !drawing.IsDrawing, "draw cannot start outside the work area");
         Assert(drawing.Begin(-1800, -200), "draw begins at a negative desktop origin");
@@ -110,6 +111,7 @@ internal static partial class Program
 
     private static async Task DrawPlacementNativeTests()
     {
+        await DrawModifierNativeTests();
         Theme.Apply("Dark");
         using var fixture = StartFixture("--pair");
         DrawPlacementSession? session = null;
@@ -175,7 +177,7 @@ internal static partial class Program
             overlay.FlushPreview(); Assert(overlay.PreviewUpdates == updates + 1, "1000 pointer events coalesce into one latest-state preview");
             bool committed = false;
             Task<PlacementResult>? placement = null;
-            session.PlacementRequested += (display, bounds) => { committed = true; placement = service.PlaceDrawnAsync(target, display, bounds); };
+            session.PlacementRequested += (display, bounds, avoidOverlap) => { committed = true; placement = service.PlaceDrawnAsync(target, display, bounds); };
             overlay.Begin(requested.Right, requested.Bottom); overlay.Update(requested.Left, requested.Top); overlay.Apply();
             Assert(committed && session.IsClosed, "release commits once and tears down all overlays");
             Assert(placement is not null && (await placement).Success && WindowService.VisibleBounds(hwnd).Near(requested), "overlay-to-native path keeps exact reverse-drag bounds");
@@ -190,7 +192,7 @@ internal static partial class Program
             var minimumFrame = overlay.PlacementBounds!.Value;
             Assert(minimumFrame.Width >= min!.MinimumWidth && minimumFrame.Height >= min.MinimumHeight &&
                 minimumFrame.Right == left + width && minimumFrame.Bottom == top + height, "tiny reverse drag previews minimum anchored at first click");
-            placement = null; session.PlacementRequested += (display, bounds) => placement = service.PlaceDrawnAsync(target, display, bounds);
+            placement = null; session.PlacementRequested += (display, bounds, avoidOverlap) => placement = service.PlaceDrawnAsync(target, display, bounds);
             overlay.Apply();
             var minimumResult = placement is null ? null : await placement;
             Assert(minimumResult?.Success == true && WindowService.VisibleBounds(hwnd).Near(minimumFrame),
@@ -210,7 +212,7 @@ internal static partial class Program
 
             session = new(target, [monitor]); session.Show(); await session.MinimumDetection;
             overlay = session.Overlays.Single(); overlay.Begin(left, top); overlay.Update(left + 400, top + 300);
-            bool staleCommitted = false; session.PlacementRequested += (_, _) => staleCommitted = true;
+            bool staleCommitted = false; session.PlacementRequested += (_, _, _) => staleCommitted = true;
             Native.SetForegroundWindow(hwnd); // Focus only our disposable fixture, without injecting input.
             overlay.Apply();
             Assert(!staleCommitted && session.IsClosed, "synchronous foreground guard cancels commit before deferred deactivation handler");

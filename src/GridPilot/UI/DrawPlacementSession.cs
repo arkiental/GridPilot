@@ -10,17 +10,23 @@ internal sealed class DrawPlacementSession
     private readonly CancellationTokenSource cancellation = new();
     private readonly DispatcherTimer targetWatch = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private bool closed, showing;
+    private readonly Func<int, int, bool> moveCursor;
+    internal IReadOnlyList<PixelRect> Obstacles { get; }
     internal WindowTarget Target { get; }
     internal IReadOnlyList<DrawPlacementWindow> Overlays { get; }
     internal Task MinimumDetection { get; private set; } = Task.CompletedTask;
     internal bool IsClosed => closed;
     internal DrawSnappingSettings Snapping { get; }
     internal event Action? Closed;
-    internal event Action<DisplayMonitor, PixelRect>? PlacementRequested;
+    internal event Action<DisplayMonitor, PixelRect, bool>? PlacementRequested;
 
-    internal DrawPlacementSession(WindowTarget target, IReadOnlyList<DisplayMonitor> displays, DrawSnappingSettings? snapping = null)
+    internal DrawPlacementSession(WindowTarget target, IReadOnlyList<DisplayMonitor> displays, DrawSnappingSettings? snapping = null,
+        Func<IReadOnlyList<PreviewWindowEntry>>? captureCatalog = null, Func<int, int, bool>? moveCursor = null)
     {
         Target = target;
+        this.moveCursor = moveCursor ?? Native.SetCursorPos;
+        Obstacles = (captureCatalog?.Invoke() ?? PreviewWindows.Capture())
+            .Where(e => e.Target.Handle != target.Handle || e.Target.ProcessId != target.ProcessId).Select(e => e.Bounds).ToArray();
         Snapping = new() { Enabled = snapping?.Enabled ?? false, Size = snapping?.Size ?? 32, Toggle = snapping is null ? new(0, 0x53) : snapping.Toggle };
         var original = WindowService.VisibleBounds(target.Handle);
         // Capture once, before showing any overlay. Standard opaque WPF windows
@@ -35,6 +41,8 @@ internal sealed class DrawPlacementSession
                 Native.IsIconic(Target.Handle) || !Native.IsWindowEnabled(Target.Handle)) Cancel(false);
         };
     }
+    internal bool MoveCursor(int x, int y)
+    { using var dpi = new Native.DpiScope(); return moveCursor(x, y); }
 
     internal void Show()
     {
@@ -116,7 +124,7 @@ internal sealed class DrawPlacementSession
         var now = MonitorService.GetAll().FirstOrDefault(m => m.Device == source.Display.Device);
         if (now is null || now.Work != source.Display.Work || now.Dpi != source.Display.Dpi) { Cancel(false); return; }
         Cancel(false);
-        PlacementRequested?.Invoke(source.Display, bounds);
+        PlacementRequested?.Invoke(source.Display, bounds, source.Drawing.AvoidOverlaps);
     }
 
     internal void Cancel(bool focusTarget)

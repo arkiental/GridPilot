@@ -153,13 +153,13 @@ public partial class App : Application
             }
             hotkeys?.TryApply([], out _); RestoreHotkeys();
         };
-        next.PlacementRequested += (display, bounds) => _ = PlaceDrawnAsync(target, display, bounds);
+        next.PlacementRequested += (display, bounds, avoidOverlap) => _ = PlaceDrawnAsync(target, display, bounds, avoidOverlap);
         next.Show();
     }
 
-    private async Task PlaceDrawnAsync(WindowTarget target, DisplayMonitor display, PixelRect bounds)
+    private async Task PlaceDrawnAsync(WindowTarget target, DisplayMonitor display, PixelRect bounds, bool avoidOverlap)
     {
-        var result = await windows.PlaceDrawnAsync(target, display, bounds);
+        var result = await windows.PlaceDrawnAsync(target, display, bounds, avoidOverlap);
         if (!result.Success) Notify(result.Message ?? "This app did not accept the drawn rectangle. Try a larger size.");
         UpdateTray();
     }
