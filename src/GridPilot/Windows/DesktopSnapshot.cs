@@ -7,11 +7,13 @@ namespace GridPilot.Windows;
 
 internal sealed record DesktopSnapshot(DisplayMonitor Monitor, BitmapSource? Image)
 {
-    // Capture before any GridPilot panel is visible. Only a small frozen thumbnail is retained, never written to disk.
-    public static DesktopSnapshot Capture(DisplayMonitor monitor)
+    // Capture before any GridPilot panel is visible. A bounded frozen image is
+    // retained only in memory: 960px for panels, up to 4096px for desktop drawing.
+    public static DesktopSnapshot Capture(DisplayMonitor monitor) => Capture(monitor, 960);
+    public static DesktopSnapshot Capture(DisplayMonitor monitor, int maximumDimension)
     {
         using var dpi = new Native.DpiScope();
-        var size = ThumbnailSize(monitor.Bounds);
+        var size = ThumbnailSize(monitor.Bounds, maximumDimension);
         nint screen = 0, memory = 0, bitmap = 0, previous = 0;
         try
         {
@@ -48,10 +50,11 @@ internal sealed record DesktopSnapshot(DisplayMonitor Monitor, BitmapSource? Ima
         }
     }
 
-    internal static (int Width, int Height) ThumbnailSize(PixelRect bounds)
+    internal static (int Width, int Height) ThumbnailSize(PixelRect bounds, int maximumDimension = 960)
     {
         if (!bounds.IsValid) throw new ArgumentException("Invalid display bounds.");
-        double scale = Math.Min(1, 960d / Math.Max(bounds.Width, bounds.Height));
+        if (maximumDimension is < 1 or > 4096) throw new ArgumentOutOfRangeException(nameof(maximumDimension));
+        double scale = Math.Min(1, (double)maximumDimension / Math.Max(bounds.Width, bounds.Height));
         return (Math.Max(1, (int)Math.Round(bounds.Width * scale)), Math.Max(1, (int)Math.Round(bounds.Height * scale)));
     }
 

@@ -33,6 +33,8 @@ public sealed class AppSettings
     public double Gap { get; set; } = 8;
     public Shortcut Activation { get; set; } = new(6, 0x20);
     public Shortcut? DrawPlacement { get; set; } = new(3, 0x44);
+    private DrawSnappingSettings drawSnapping = new();
+    public DrawSnappingSettings DrawSnapping { get => drawSnapping; set => drawSnapping = value ?? new(); }
     public Shortcut? Undo { get; set; }
     public bool StartAtLogin { get; set; }
     public string Theme { get; set; } = "Dark";
@@ -82,6 +84,8 @@ public sealed class AppSettings
         if (Activation.Validate() is { } error) return error;
         if (Undo?.Validate() is { } undoError) return undoError;
         if (DrawPlacement?.Validate() is { } drawError) return drawError;
+        if (DrawSnapping.Validate() is { } snapError) return snapError;
+        if (DrawPlacement is not null && DrawSnapping.Toggle == DrawPlacement) return "The drawing snap toggle must differ from the Draw placement shortcut.";
         if (PartialWorkspace.Validate() is { } workspaceError) return workspaceError;
         if (Presets is null || Presets.Count > 100) return "Keep at most 100 saved placements.";
         var shortcuts = new HashSet<Shortcut> { Activation };

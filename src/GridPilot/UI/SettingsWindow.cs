@@ -15,6 +15,9 @@ public sealed class SettingsWindow : Window
     private readonly Func<AppSettings, string?> save;
     private readonly TextBox columns = new(), rows = new(), gap = new(), name = new();
     private readonly ShortcutBox activation = new(), drawPlacement = new(), undo = new(), presetShortcut = new();
+    private readonly ShortcutBox snapShortcut = new() { DrawingOnly = true, ToolTip = "Press a key, optionally with Ctrl, Alt or Shift. Used only during an active drawing gesture." };
+    private readonly TextBox snapSize = new();
+    private readonly CheckBox snapEnabled = new() { Content = "Snap while drawing (remembers on/off)", Margin = new Thickness(0, 4, 0, 10) };
     private readonly ShortcutBox fillShortcut = new();
     private readonly TextBox workspaceColumns = new(), workspaceRows = new();
     private readonly ComboBox workspaceMonitor = new();
@@ -113,6 +116,11 @@ public sealed class SettingsWindow : Window
         stack.Children.Add(Text("Shortcuts", 19, "TextBrush", FontWeights.SemiBold));
         stack.Children.Add(Field("Open the grid", activation, "Click the field and press your shortcut. Ctrl or Alt is required."));
         stack.Children.Add(Field("Draw placement · optional", drawPlacement, "Draw the active window’s exact bounds on the desktop. Suggested: Ctrl + Alt + D. Backspace clears it."));
+        stack.Children.Add(snapEnabled);
+        var snapFields = new UniformGrid { Columns = 2 };
+        snapFields.Children.Add(Field("Drawing snap toggle · optional", snapShortcut, "Default: S. Only during a mouse or keyboard drag; never a global shortcut."));
+        snapFields.Children.Add(Field("Drawing snap size", snapSize, "1–1024 physical pixels. Measures from your first corner."));
+        stack.Children.Add(snapFields);
         stack.Children.Add(Field("Undo last placement · optional", undo, "Backspace or Delete clears a shortcut. Shortcuts pause while these settings have focus."));
         theme.ItemsSource = new[] { "System", "Light", "Dark" };
         stack.Children.Add(Field("Appearance", theme));
@@ -252,6 +260,7 @@ public sealed class SettingsWindow : Window
     {
         columns.Text = draft.Columns.ToString(CultureInfo.InvariantCulture); rows.Text = draft.Rows.ToString(CultureInfo.InvariantCulture);
         gap.Text = draft.Gap.ToString(CultureInfo.CurrentCulture); activation.Set(draft.Activation); undo.Set(draft.Undo); drawPlacement.Set(draft.DrawPlacement);
+        snapShortcut.Set(draft.DrawSnapping.Toggle); snapSize.Text = draft.DrawSnapping.Size.ToString(CultureInfo.InvariantCulture); snapEnabled.IsChecked = draft.DrawSnapping.Enabled;
         smokedGlass.IsChecked = draft.SmokedGlass; theme.SelectedItem = draft.Theme; startAtLogin.IsChecked = draft.StartAtLogin;
         closeAfterPlacement.IsChecked = draft.CloseAfterPlacement;
     }
@@ -291,7 +300,8 @@ public sealed class SettingsWindow : Window
     private void SaveClick(object sender, RoutedEventArgs e)
     {
         if (captureErrors.FirstOrDefault() is { Key: not null } invalid) { error.Text = $"{invalid.Key.Name}: {invalid.Value}"; return; }
-        if ((activation.CaptureError ?? drawPlacement.CaptureError ?? undo.CaptureError ?? presetShortcut.CaptureError ?? fillShortcut.CaptureError) is { } captureError) { error.Text = captureError; return; }
+        if ((activation.CaptureError ?? drawPlacement.CaptureError ?? snapShortcut.CaptureError ?? undo.CaptureError ?? presetShortcut.CaptureError ?? fillShortcut.CaptureError) is { } captureError) { error.Text = captureError; return; }
+        if (!int.TryParse(snapSize.Text, out int snapPixels)) { error.Text = "Enter a whole number for drawing snap size."; return; }
         if (!int.TryParse(columns.Text, out int c) || !int.TryParse(rows.Text, out int r)) { error.Text = "Enter whole numbers for rows and columns."; return; }
         if (!double.TryParse(gap.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double g)) { error.Text = "Enter a number for the gap."; return; }
         if (activation.Value is null) { error.Text = "Choose a shortcut to open the grid."; return; }
@@ -301,6 +311,7 @@ public sealed class SettingsWindow : Window
         draft.CloseAfterPlacement = closeAfterPlacement.IsChecked == true;
         draft.Columns = c; draft.Rows = r; draft.Gap = g; draft.Activation = activation.Value; draft.Undo = undo.Value;
         draft.DrawPlacement = drawPlacement.Value;
+        draft.DrawSnapping = new() { Enabled = snapEnabled.IsChecked == true, Size = snapPixels, Toggle = snapShortcut.Value };
         draft.SmokedGlass = smokedGlass.IsChecked == true; draft.Theme = theme.SelectedItem as string ?? "System"; draft.StartAtLogin = startAtLogin.IsChecked == true;
         var message = draft.Validate() ?? save(draft);
         if (message is not null) { error.Text = message; return; }

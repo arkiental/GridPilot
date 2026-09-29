@@ -133,7 +133,7 @@ public partial class App : Application
         var displays = MonitorService.GetAll();
         if (displays.Count == 0) { Notify("No display is available."); return; }
         panel?.Dismiss(false); lastTarget = target;
-        var next = new DrawPlacementSession(target, displays);
+        var next = new DrawPlacementSession(target, displays, settings.DrawSnapping);
         drawSession = next;
         // No preset or grid shortcut can race a drag. The same draw shortcut can
         // still toggle the overlay off; Escape and right-click work without it.
@@ -142,6 +142,15 @@ public partial class App : Application
         next.Closed += () =>
         {
             if (drawSession == next) drawSession = null;
+            // Save once on close (including cancel), never in the pointer or
+            // toggle hot path. Keep all unrelated settings as they are now.
+            if (settings.DrawSnapping.Enabled != next.Snapping.Enabled)
+            {
+                settings.DrawSnapping.Enabled = next.Snapping.Enabled;
+                try { store.Save(settings); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+                { Notify("Snapping changed for this session but could not be saved: " + ex.Message); }
+            }
             hotkeys?.TryApply([], out _); RestoreHotkeys();
         };
         next.PlacementRequested += (display, bounds) => _ = PlaceDrawnAsync(target, display, bounds);

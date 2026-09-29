@@ -4,7 +4,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Shapes;
+using System.Windows.Media.Imaging;
 using GridPilot.Windows;
 
 namespace GridPilot.UI;
@@ -12,85 +12,95 @@ namespace GridPilot.UI;
 internal sealed class DrawPlacementWindow : Window
 {
     private readonly DrawPlacementSession session;
-    private readonly PixelRect original;
-    private readonly Canvas canvas = new();
+    private readonly Canvas canvas = new() { ClipToBounds = true };
     private readonly Border banner;
     private readonly TextBlock status = new() { FontSize = 13, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0) };
     private readonly TextBlock hint = new() { FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 7, 0, 0) };
-    private readonly Rectangle selection = new() { StrokeThickness = 2, IsHitTestVisible = false };
-    private readonly Rectangle marker = new() { StrokeThickness = 2, IsHitTestVisible = false };
-    private readonly Rectangle workOutline = new() { StrokeThickness = 1, IsHitTestVisible = false, StrokeDashArray = [4, 5] };
-    private readonly Line crossX = new() { StrokeThickness = 1, IsHitTestVisible = false };
-    private readonly Line crossY = new() { StrokeThickness = 1, IsHitTestVisible = false };
     private readonly TextBlock dimensions = new() { FontSize = 14, FontWeight = FontWeights.SemiBold, Padding = new Thickness(10, 5, 10, 5), IsHitTestVisible = false };
-    private PlacementConstraint? minimum;
-    private bool detecting = true, releasing, keyboard;
-    private int pointerX, pointerY;
+    private readonly TextBlock minimumLabel = new() { FontSize = 11, Padding = new Thickness(6, 3, 6, 3), IsHitTestVisible = false };
+    private readonly DrawPlacementVisual visual;
+    private readonly Image background;
+    private bool detecting = true, estimatedMinimum, releasing, keyboard, dirty = true, waitingToApply, renderingSubscribed;
+    private int pointerX, pointerY, minimumWidth, minimumHeight;
     private HwndSource? source;
+    private double scaleX, scaleY;
+    private string? notice;
     internal DisplayMonitor Display { get; }
     internal DrawPlacement Drawing { get; }
-    internal bool CanApply => !detecting && Drawing.CanApply(minimum?.MinimumWidth ?? 0, minimum?.MinimumHeight ?? 0);
-    private Brush Accent => SystemParameters.HighContrast ? SystemColors.HighlightBrush : new SolidColorBrush(Color.FromRgb(255, 153, 77));
-    private Brush Text => SystemParameters.HighContrast ? SystemColors.WindowTextBrush : Brushes.WhiteSmoke;
-    private Brush Surface => SystemParameters.HighContrast ? SystemColors.WindowBrush : new SolidColorBrush(Color.FromRgb(32, 32, 32));
+    internal bool CanApply => !detecting && Drawing.CanApply(minimumWidth, minimumHeight);
+    internal PixelRect? MinimumBounds => Drawing.MinimumBounds(minimumWidth, minimumHeight);
+    internal PixelRect? PlacementBounds => Drawing.PlacementBounds(minimumWidth, minimumHeight);
+    internal UIElement OverlayContent => canvas; // Test renders exclude the private desktop background.
+    internal int PreviewUpdates { get; private set; }
+    private static Brush Solid(byte r, byte g, byte b, byte a = 255)
+    { var brush = new SolidColorBrush(Color.FromArgb(a, r, g, b)); brush.Freeze(); return brush; }
 
-    internal DrawPlacementWindow(DrawPlacementSession session, DisplayMonitor display, PixelRect original)
+    internal DrawPlacementWindow(DrawPlacementSession session, DisplayMonitor display, PixelRect original, BitmapSource? desktop)
     {
-        this.session = session; Display = display; this.original = original; Drawing = new(display.Work);
+        this.session = session; Display = display; Drawing = new(display.Work);
+        scaleX = scaleY = 96d / display.Dpi;
+        minimumWidth = Math.Max(8, Native.GetSystemMetricsForDpi(34, display.Dpi));
+        minimumHeight = Math.Max(8, Native.GetSystemMetricsForDpi(35, display.Dpi));
+        var accent = SystemParameters.HighContrast ? SystemColors.HighlightBrush : Solid(255, 153, 77);
+        var textBrush = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : Brushes.WhiteSmoke;
+        var surface = SystemParameters.HighContrast ? SystemColors.WindowBrush : Solid(32, 32, 32);
+        var guide = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : Solid(130, 211, 225);
+        visual = new DrawPlacementVisual(display, original, accent, guide) { IsHitTestVisible = false };
         Title = "GridPilot — Draw placement"; WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
-        AllowsTransparency = true; Background = Brushes.Transparent; Topmost = true; ShowInTaskbar = false; ShowActivated = false;
-        Left = display.Bounds.Left * 96d / display.Dpi; Top = display.Bounds.Top * 96d / display.Dpi;
-        Width = display.Bounds.Width * 96d / display.Dpi; Height = display.Bounds.Height * 96d / display.Dpi;
-        Cursor = Cursors.Cross; Content = canvas;
-        canvas.Background = new SolidColorBrush(Color.FromArgb(55, 12, 12, 12));
-        canvas.ClipToBounds = true;
+        // Standard opaque WPF composition; use a live transparent fallback only
+        // when desktop capture is unavailable.
+        AllowsTransparency = desktop is null; Background = desktop is null ? Brushes.Transparent : Brushes.Black;
+        Topmost = true; ShowInTaskbar = false; ShowActivated = false;
+        Left = display.Bounds.Left * scaleX; Top = display.Bounds.Top * scaleY;
+        Width = display.Bounds.Width * scaleX; Height = display.Bounds.Height * scaleY;
+        Cursor = Cursors.Cross;
+        background = new Image { Source = desktop, Stretch = Stretch.Fill, IsHitTestVisible = false };
+        RenderOptions.SetBitmapScalingMode(background, BitmapScalingMode.LowQuality);
+        var root = new Grid(); root.Children.Add(background); root.Children.Add(canvas); Content = root;
+        canvas.Background = Solid(12, 12, 12, 55);
         var text = new StackPanel();
-        text.Children.Add(new TextBlock { Text = "DRAW PLACEMENT", Foreground = Accent, FontSize = 12, FontWeight = FontWeights.Bold });
-        text.Children.Add(new TextBlock { Text = session.Target.Title, Foreground = Text, FontSize = 19, FontWeight = FontWeights.SemiBold,
+        text.Children.Add(new TextBlock { Text = "DRAW PLACEMENT", Foreground = accent, FontSize = 12, FontWeight = FontWeights.Bold });
+        text.Children.Add(new TextBlock { Text = session.Target.Title, Foreground = textBrush, FontSize = 19, FontWeight = FontWeights.SemiBold,
             TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 6, 0, 0) });
-        status.Foreground = Text; hint.Foreground = Text; text.Children.Add(status); text.Children.Add(hint);
+        status.Foreground = textBrush; hint.Foreground = textBrush; text.Children.Add(status); text.Children.Add(hint);
         AutomationProperties.SetLiveSetting(status, AutomationLiveSetting.Polite);
-        banner = new Border { Background = Surface, BorderBrush = Accent, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
+        banner = new Border { Background = surface, BorderBrush = accent, BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10),
             Padding = new Thickness(20, 16, 20, 16), Child = text, IsHitTestVisible = false };
-        workOutline.Stroke = Text;
-        marker.Stroke = SystemParameters.HighContrast ? SystemColors.WindowTextBrush : new SolidColorBrush(Color.FromRgb(255, 91, 105));
-        marker.StrokeDashArray = [6, 3];
-        selection.Stroke = Accent; selection.Fill = new SolidColorBrush(Color.FromArgb(25, 255, 153, 77));
-        dimensions.Background = Surface; dimensions.Foreground = Text;
-        crossX.Stroke = crossY.Stroke = Accent;
-        foreach (var element in new UIElement[] { workOutline, marker, selection, crossX, crossY, banner, dimensions }) canvas.Children.Add(element);
+        dimensions.Background = minimumLabel.Background = surface; dimensions.Foreground = textBrush; minimumLabel.Foreground = guide;
+        foreach (var element in new UIElement[] { visual, banner, dimensions, minimumLabel }) canvas.Children.Add(element);
         AutomationProperties.SetName(this, "Draw a placement for " + session.Target.Title);
         pointerX = display.Work.Left + display.Work.Width / 4; pointerY = display.Work.Top + display.Work.Height / 4;
+        Drawing.SetSnapping(session.Snapping.Enabled, session.Snapping.Size);
         SourceInitialized += (_, _) =>
         {
             source = HwndSource.FromHwnd(new WindowInteropHelper(this).Handle); source?.AddHook(WindowMessage);
             using (new Native.DpiScope()) Native.SetWindowPos(new WindowInteropHelper(this).Handle, new nint(-1),
                 display.Bounds.Left, display.Bounds.Top, display.Bounds.Width, display.Bounds.Height, 0x10);
         };
-        Loaded += (_, _) => { Refresh(); Focus(); };
-        SizeChanged += (_, _) => Refresh();
+        Loaded += (_, _) => { UpdateMetrics(); FlushPreview(); Focus(); };
+        SizeChanged += (_, _) => UpdateMetrics();
         Deactivated += (_, _) => session.CheckActivation();
-        Closed += (_, _) => { source?.RemoveHook(WindowMessage); session.Cancel(false); };
+        Closed += (_, _) =>
+        { UnsubscribeRendering(); background.Source = null; source?.RemoveHook(WindowMessage); session.Cancel(false); };
         PreviewKeyDown += OnKey;
         MouseLeftButtonDown += (_, e) =>
         {
-            if (!ReadPointer()) return;
+            if (waitingToApply || !ReadPointer()) return;
             keyboard = false;
             if (Begin(pointerX, pointerY) && !canvas.CaptureMouse()) ResetSelection();
             e.Handled = true;
         };
         MouseMove += (_, _) =>
         {
-            if (keyboard) return;
-            if (ReadPointer()) { Drawing.Update(pointerX, pointerY); Refresh(); }
+            // OS cursor is immediate. Only a selection needs a managed update.
+            if (keyboard || waitingToApply || !Drawing.IsDrawing) return;
+            if (ReadPointer()) Update(pointerX, pointerY);
         };
         MouseLeftButtonUp += (_, e) =>
         {
-            if (keyboard || !Drawing.IsDrawing) return;
+            if (keyboard || !Drawing.IsDrawing || waitingToApply) return;
             bool located = ReadPointer(); Drawing.Update(pointerX, pointerY);
             releasing = true; canvas.ReleaseMouseCapture(); releasing = false;
-            // A release on another monitor cancels this drag instead of silently
-            // committing a truncated rectangle. A new drag can start there.
             if (!located || pointerX < Display.Bounds.Left || pointerX >= Display.Bounds.Right ||
                 pointerY < Display.Bounds.Top || pointerY >= Display.Bounds.Bottom) ResetSelection();
             else Apply();
@@ -100,109 +110,188 @@ internal sealed class DrawPlacementWindow : Window
         MouseRightButtonDown += (_, e) => { session.Cancel(true); e.Handled = true; };
     }
 
+    private void UpdateMetrics()
+    {
+        if (source?.CompositionTarget is { } target) { scaleX = target.TransformFromDevice.M11; scaleY = target.TransformFromDevice.M22; }
+        visual.Width = Math.Max(0, ActualWidth); visual.Height = Math.Max(0, ActualHeight); visual.SetScale(scaleX, scaleY);
+        banner.Width = Math.Max(100, Math.Min(470, Display.Work.Width * scaleX - 32)); QueuePreview();
+    }
     private nint WindowMessage(nint hwnd, int message, nint wParam, nint lParam, ref bool handled)
     {
-        if (message is 0x7e or 0x1a || message == 0x2e0 && IsLoaded)
-            Dispatcher.BeginInvoke(() => session.Cancel(false));
+        if (message is 0x7e or 0x1a || message == 0x2e0 && IsLoaded) Dispatcher.BeginInvoke(() => session.Cancel(false));
         return 0;
     }
-
-    internal void SetMinimum(PlacementConstraint? value) { minimum = value; detecting = false; Refresh(); }
-
+    internal void SetMinimum(PlacementConstraint? value)
+    {
+        estimatedMinimum = value is null;
+        if (value is not null) { minimumWidth = value.MinimumWidth; minimumHeight = value.MinimumHeight; }
+        detecting = false; UpdateHint(); QueuePreview();
+        if (waitingToApply) { waitingToApply = false; Apply(); }
+    }
+    internal void SetSnapping()
+    { Drawing.SetSnapping(session.Snapping.Enabled, session.Snapping.Size); UpdateHint(); QueuePreview(); }
+    private void UpdateHint()
+    {
+        hint.Text = $"Minimum {minimumWidth} × {minimumHeight} px{(estimatedMinimum ? " · estimated" : "")} · Snap {(session.Snapping.Enabled ? "ON" : "OFF")} · {session.Snapping.Size} px" +
+            $"\n{(session.Snapping.Toggle is null ? "Toggle unassigned" : ShortcutBox.Format(session.Snapping.Toggle) + " toggles snap during a drag")} · Esc cancels" +
+            "\nArrows move · Shift ×10 · Enter sets corners · Tab changes display";
+    }
     internal bool Begin(int x, int y)
     {
-        session.SelectDisplay(this);
-        pointerX = x; pointerY = y;
-        bool started = Drawing.Begin(x, y); Refresh(); return started;
+        session.SelectDisplay(this); notice = null; pointerX = x; pointerY = y;
+        bool started = Drawing.Begin(x, y); QueuePreview(); return started;
     }
-
-    internal void Update(int x, int y) { Drawing.Update(x, y); Refresh(); }
-
+    internal void Update(int x, int y)
+    { if (waitingToApply) return; pointerX = x; pointerY = y; Drawing.Update(x, y); QueuePreview(); }
     internal void Apply()
     {
-        if (!CanApply) { Drawing.Cancel(); Refresh("That rectangle is too small, or size detection is still running. Draw again."); return; }
-        session.Commit(this, Drawing.Bounds!.Value);
+        if (!Drawing.HasMovement) { ResetSelection(); return; }
+        if (detecting) { waitingToApply = true; QueuePreview(); return; }
+        if (PlacementBounds is not { } bounds)
+        { notice = "The app’s minimum size does not fit this display. Choose another display."; ResetSelection(false); return; }
+        FlushPreview(); session.Commit(this, bounds);
     }
-
-    internal void ResetSelection()
+    internal void ResetSelection(bool clearNotice = true)
     {
-        Drawing.Cancel(); releasing = true; canvas.ReleaseMouseCapture(); releasing = false; Refresh();
+        waitingToApply = false; if (clearNotice) notice = null;
+        Drawing.Cancel(); releasing = true; canvas.ReleaseMouseCapture(); releasing = false; QueuePreview();
     }
-
     private bool ReadPointer()
     {
         using var dpi = new Native.DpiScope();
         if (!Native.GetCursorPos(out var point)) return false;
         pointerX = point.X; pointerY = point.Y; return true;
     }
-
+    internal (int X, int Y) KeyboardPoint(int cursorX, int cursorY) => Drawing.Contains(cursorX, cursorY)
+        ? (cursorX, cursorY) : (Math.Clamp(pointerX, Display.Work.Left, Display.Work.Right), Math.Clamp(pointerY, Display.Work.Top, Display.Work.Bottom));
+    private void ReadKeyboardPointer()
+    {
+        using var dpi = new Native.DpiScope();
+        if (Native.GetCursorPos(out var cursor)) (pointerX, pointerY) = KeyboardPoint(cursor.X, cursor.Y);
+    }
+    internal bool HandleDrawingToggle(Key key, ModifierKeys modifiers, bool repeated)
+    {
+        var toggle = session.Snapping.Toggle;
+        if (!Drawing.IsDrawing || waitingToApply || toggle is null || toggle.Modifiers != (uint)modifiers || toggle.Key != (uint)KeyInterop.VirtualKeyFromKey(key)) return false;
+        if (!repeated) session.ToggleSnapping(); return true;
+    }
     private void OnKey(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.Escape) session.Cancel(true);
-        else if (e.Key == Key.Tab) { ResetSelection(); session.NextDisplay(this); }
-        else if (e.Key is Key.Space or Key.Enter)
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (HandleDrawingToggle(key, Keyboard.Modifiers, e.IsRepeat)) { e.Handled = true; return; }
+        if (key == Key.Escape) session.Cancel(true);
+        else if (key == Key.Tab) { ResetSelection(); session.NextDisplay(this); }
+        else if (waitingToApply) { e.Handled = true; return; }
+        else if (key is Key.Space or Key.Enter)
         {
+            if (e.IsRepeat) { e.Handled = true; return; }
+            if (!keyboard && !Drawing.IsDrawing) ReadKeyboardPointer();
             keyboard = true;
             if (Drawing.IsDrawing) Apply(); else Begin(pointerX, pointerY);
         }
-        else if (e.Key is Key.Left or Key.Right or Key.Up or Key.Down)
+        else if (key is Key.Left or Key.Right or Key.Up or Key.Down)
         {
+            if (!keyboard && !Drawing.IsDrawing) ReadKeyboardPointer();
             keyboard = true;
             int step = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? 10 : 1;
-            pointerX = Math.Clamp(pointerX + (e.Key == Key.Left ? -step : e.Key == Key.Right ? step : 0), Display.Work.Left, Display.Work.Right);
-            pointerY = Math.Clamp(pointerY + (e.Key == Key.Up ? -step : e.Key == Key.Down ? step : 0), Display.Work.Top, Display.Work.Bottom);
-            Drawing.Update(pointerX, pointerY); Refresh();
+            pointerX = Math.Clamp(pointerX + (key == Key.Left ? -step : key == Key.Right ? step : 0), Display.Work.Left, Display.Work.Right);
+            pointerY = Math.Clamp(pointerY + (key == Key.Up ? -step : key == Key.Down ? step : 0), Display.Work.Top, Display.Work.Bottom);
+            Update(pointerX, pointerY);
         }
         else return;
         e.Handled = true;
     }
-
-    private Point Local(int x, int y) => source?.CompositionTarget?.TransformFromDevice.Transform(new Point(x - Display.Bounds.Left, y - Display.Bounds.Top))
-        ?? new Point((x - Display.Bounds.Left) * 96d / Display.Dpi, (y - Display.Bounds.Top) * 96d / Display.Dpi);
-
-    private void Position(Rectangle shape, PixelRect bounds)
+    private Point Local(int x, int y) => new((x - Display.Bounds.Left) * scaleX, (y - Display.Bounds.Top) * scaleY);
+    private void QueuePreview()
     {
-        var start = Local(bounds.Left, bounds.Top); var end = Local(bounds.Right, bounds.Bottom);
-        Canvas.SetLeft(shape, start.X); Canvas.SetTop(shape, start.Y);
-        shape.Width = Math.Max(0, end.X - start.X); shape.Height = Math.Max(0, end.Y - start.Y);
+        dirty = true;
+        if (renderingSubscribed || session.IsClosed) return;
+        renderingSubscribed = true; CompositionTarget.Rendering += RenderFrame;
     }
-
-    private void Refresh(string? message = null)
+    private void RenderFrame(object? sender, EventArgs e) => FlushPreview();
+    private void UnsubscribeRendering()
+    { if (!renderingSubscribed) return; CompositionTarget.Rendering -= RenderFrame; renderingSubscribed = false; }
+    internal void FlushPreview()
     {
-        if (banner is null) return;
-        Position(workOutline, Display.Work); Position(marker, original);
+        UnsubscribeRendering();
+        if (!dirty || session.IsClosed) return;
+        dirty = false; PreviewUpdates++;
+        var placed = PlacementBounds; var min = MinimumBounds;
+        visual.Update(Drawing.Bounds, min, placed, keyboard ? Local(pointerX, pointerY) : null);
         var workStart = Local(Display.Work.Left, Display.Work.Top); var workEnd = Local(Display.Work.Right, Display.Work.Bottom);
-        banner.Width = Math.Max(100, Math.Min(470, workEnd.X - workStart.X - 32));
         double bannerX = workStart.X + 16, bannerY = workStart.Y + 16;
-        if (Drawing.Bounds is { IsValid: true } selectionBounds)
+        if (placed is { } b)
         {
-            var a = Local(selectionBounds.Left, selectionBounds.Top); var b = Local(selectionBounds.Right, selectionBounds.Bottom);
-            var preview = new Rect(a, b);
+            var selection = new Rect(Local(b.Left, b.Top), Local(b.Right, b.Bottom));
             double height = Math.Max(180, banner.ActualHeight);
-            var candidates = new[] { new Point(bannerX, bannerY), new Point(workEnd.X - banner.Width - 16, bannerY),
-                new Point(bannerX, workEnd.Y - height - 16), new Point(workEnd.X - banner.Width - 16, workEnd.Y - height - 16) };
-            foreach (var candidate in candidates)
-                if (!preview.IntersectsWith(new Rect(candidate, new Size(banner.Width, height))))
-                { bannerX = candidate.X; bannerY = candidate.Y; break; }
+            if (selection.IntersectsWith(new Rect(bannerX, bannerY, banner.Width, height)))
+            {
+                double right = workEnd.X - banner.Width - 16, bottom = workEnd.Y - height - 16;
+                if (!selection.IntersectsWith(new Rect(right, bannerY, banner.Width, height))) bannerX = right;
+                else if (!selection.IntersectsWith(new Rect(bannerX, bottom, banner.Width, height))) bannerY = bottom;
+                else if (!selection.IntersectsWith(new Rect(right, bottom, banner.Width, height))) { bannerX = right; bannerY = bottom; }
+            }
         }
         Canvas.SetLeft(banner, bannerX); Canvas.SetTop(banner, bannerY);
-        status.Text = message ?? (Drawing.IsDrawing ? detecting ? "Checking the app’s minimum size…" : CanApply
-            ? keyboard ? "Press Enter to place this window." : "Release to place this window." : "Draw a larger rectangle before releasing."
-            : "Drag from one corner to the opposite corner.");
-        hint.Text = detecting ? "Checking app minimum size…  ·  Esc cancels" :
-            $"{Display.ShortLabel} · " + (minimum is null ? "App size limits checked on placement" : $"Minimum {minimum.MinimumWidth} × {minimum.MinimumHeight} px") +
-            "\nRed outline: original position · Esc / right-click cancels\nArrows move · Shift ×10 · Enter sets corners · Tab changes display";
-        selection.Visibility = dimensions.Visibility = Drawing.Bounds is { IsValid: true } ? Visibility.Visible : Visibility.Collapsed;
-        if (Drawing.Bounds is { IsValid: true } bounds)
+        SetText(status, notice ?? (waitingToApply ? "Finishing the minimum-size check…" : Drawing.IsDrawing
+            ? min is null ? "Minimum size does not fit this display." : keyboard ? "Press Enter to place the orange preview." : "Release to place the orange preview."
+            : "Drag between corners. Cyan marks the minimum size."));
+        if (detecting) SetText(hint, "Checking app minimum size… · Esc cancels");
+        dimensions.Visibility = placed is not null ? Visibility.Visible : Visibility.Collapsed;
+        minimumLabel.Visibility = min is not null ? Visibility.Visible : Visibility.Collapsed;
+        if (placed is { } frame)
         {
-            Position(selection, bounds);
-            dimensions.Text = $"{bounds.Width} × {bounds.Height} px" + (CanApply ? "" : " · too small / checking");
-            var corner = Local(bounds.Left, bounds.Bottom);
+            SetText(dimensions, $"{frame.Width} × {frame.Height} px" + (Drawing.Bounds != placed ? " · minimum applied" : ""));
+            var corner = Local(frame.Left, frame.Bottom);
             Canvas.SetLeft(dimensions, Math.Clamp(corner.X, workStart.X, Math.Max(workStart.X, workEnd.X - 310)));
             Canvas.SetTop(dimensions, Math.Min(corner.Y + 8, workEnd.Y - 40));
         }
-        var pointer = Local(pointerX, pointerY);
-        crossX.X1 = pointer.X - 10; crossX.X2 = pointer.X + 10; crossX.Y1 = crossX.Y2 = pointer.Y;
-        crossY.X1 = crossY.X2 = pointer.X; crossY.Y1 = pointer.Y - 10; crossY.Y2 = pointer.Y + 10;
+        if (min is { } guide)
+        {
+            SetText(minimumLabel, $"MIN {minimumWidth} × {minimumHeight} px");
+            var corner = Local(guide.Left, guide.Top);
+            Canvas.SetLeft(minimumLabel, Math.Min(corner.X + 6, Math.Max(workStart.X, workEnd.X - 180)));
+            Canvas.SetTop(minimumLabel, Math.Max(workStart.Y, corner.Y - 25));
+        }
+    }
+    private static void SetText(TextBlock element, string text) { if (element.Text != text) element.Text = text; }
+}
+
+// Render-only geometry: pointer movement never changes shape Width/Height or
+// rebuilds a control tree. Pens and brushes are shared, frozen resources.
+internal sealed class DrawPlacementVisual : FrameworkElement
+{
+    private readonly DisplayMonitor display;
+    private readonly PixelRect original;
+    private readonly Pen orange, cyan, red, faint;
+    private readonly Brush fill;
+    private PixelRect? requested, minimum, placement;
+    private Point? crosshair;
+    private double scaleX, scaleY;
+    internal DrawPlacementVisual(DisplayMonitor display, PixelRect original, Brush accent, Brush guide)
+    {
+        this.display = display; this.original = original;
+        orange = MakePen(accent, 2); cyan = MakePen(guide, 1, new DashStyle([5, 4], 0));
+        red = MakePen(SystemParameters.HighContrast ? SystemColors.WindowTextBrush : Brushes.IndianRed, 2, DashStyles.Dash);
+        faint = MakePen(accent, 1, DashStyles.Dot);
+        fill = new SolidColorBrush(Color.FromArgb(18, 255, 153, 77)); fill.Freeze();
+    }
+    private static Pen MakePen(Brush brush, double thickness, DashStyle? dash = null)
+    { var pen = new Pen(brush, thickness) { DashStyle = dash ?? DashStyles.Solid }; pen.Freeze(); return pen; }
+    internal void SetScale(double x, double y) { scaleX = x; scaleY = y; InvalidateVisual(); }
+    internal void Update(PixelRect? raw, PixelRect? min, PixelRect? placed, Point? cursor)
+    { requested = raw; minimum = min; placement = placed; crosshair = cursor; InvalidateVisual(); }
+    private Rect Local(PixelRect r) => new((r.Left - display.Bounds.Left) * scaleX, (r.Top - display.Bounds.Top) * scaleY, r.Width * scaleX, r.Height * scaleY);
+    protected override void OnRender(DrawingContext dc)
+    {
+        dc.DrawRectangle(null, red, Local(original));
+        if (requested is { IsValid: true } raw && requested != placement) dc.DrawRectangle(null, faint, Local(raw));
+        if (placement is { } placed) dc.DrawRectangle(fill, orange, Local(placed));
+        if (minimum is { } min) dc.DrawRectangle(null, cyan, Local(min));
+        if (crosshair is { } p)
+        {
+            dc.DrawLine(orange, new Point(p.X - 10, p.Y), new Point(p.X + 10, p.Y));
+            dc.DrawLine(orange, new Point(p.X, p.Y - 10), new Point(p.X, p.Y + 10));
+        }
     }
 }

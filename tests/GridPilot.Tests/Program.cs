@@ -56,7 +56,8 @@ internal static partial class Program
                 {
                     try
                     {
-                        if (args.Contains("--draw")) await DrawPlacementNativeTests();
+                        if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
+                        else if (args.Contains("--draw")) await DrawPlacementNativeTests();
                         else if (args.Contains("--shortcuts")) await ShortcutEditorTests();
                         else if (args.Contains("--minimums")) await WindowMinimumNativeTests();
                         else if (args.Contains("--panel-lifecycle")) await PanelPlacementControllerNativeTests();
