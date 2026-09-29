@@ -22,11 +22,17 @@ public sealed class PlacementPreset
 
 public sealed class AppSettings
 {
+    public AppSettings() { }
+    // Missing fields in older settings stay unassigned, avoiding collisions with
+    // a user's existing Ctrl+Alt+D binding. New installations get the default.
+    [System.Text.Json.Serialization.JsonConstructor]
+    public AppSettings(Shortcut? drawPlacement) => DrawPlacement = drawPlacement;
     public int Version { get; set; } = 1;
     public int Columns { get; set; } = 6;
     public int Rows { get; set; } = 6;
     public double Gap { get; set; } = 8;
     public Shortcut Activation { get; set; } = new(6, 0x20);
+    public Shortcut? DrawPlacement { get; set; } = new(3, 0x44);
     public Shortcut? Undo { get; set; }
     public bool StartAtLogin { get; set; }
     public string Theme { get; set; } = "Dark";
@@ -75,10 +81,12 @@ public sealed class AppSettings
         if (Activation is null) return "An activation shortcut is required.";
         if (Activation.Validate() is { } error) return error;
         if (Undo?.Validate() is { } undoError) return undoError;
+        if (DrawPlacement?.Validate() is { } drawError) return drawError;
         if (PartialWorkspace.Validate() is { } workspaceError) return workspaceError;
         if (Presets is null || Presets.Count > 100) return "Keep at most 100 saved placements.";
         var shortcuts = new HashSet<Shortcut> { Activation };
         if (Undo is not null && !shortcuts.Add(Undo)) return "Undo and activation need different shortcuts.";
+        if (DrawPlacement is not null && !shortcuts.Add(DrawPlacement)) return "Draw placement needs a different shortcut from activation and Undo.";
         if (PartialWorkspace.Shortcut is { } fillShortcut && !shortcuts.Add(fillShortcut)) return "Fill empty slot needs a different shortcut from activation and Undo.";
         var ids = new HashSet<string>();
         foreach (var preset in Presets)

@@ -23,6 +23,7 @@ public partial class App : Application
     private GridPanel? panel;
     private SettingsWindow? settingsWindow;
     private AutoArrangeWindow? arrangeWindow;
+    private DrawPlacementSession? drawSession;
     private WindowTarget? lastTarget;
     private readonly ExternalForegroundTracker externalForeground = new();
     private PanelPlacementController? placementController;
@@ -47,8 +48,8 @@ public partial class App : Application
         Theme.Apply(settings.Theme);
         hotkeys = new HotkeyService();
         CreateTray();
-        hotkeys.DisplayChanged += () => { Diagnostics.Write("Display changed; dismissing grid."); panel?.Dismiss(true); };
-        hotkeys.PreferencesChanged += () => { Diagnostics.Write("Preferences changed; dismissing grid."); panel?.Dismiss(true); Theme.Apply(settings.Theme); };
+        hotkeys.DisplayChanged += () => { Diagnostics.Write("Display changed; dismissing grid."); drawSession?.Cancel(false); panel?.Dismiss(true); };
+        hotkeys.PreferencesChanged += () => { Diagnostics.Write("Preferences changed; dismissing grid."); drawSession?.Cancel(false); panel?.Dismiss(true); Theme.Apply(settings.Theme); };
         if (!hotkeys.TryApply(Actions(settings), out var shortcutError)) paused = true;
         UpdateTray();
         foregroundCallback = (_, _, hwnd, _, _, _, _) =>
@@ -67,6 +68,7 @@ public partial class App : Application
     private List<HotkeyAction> Actions(AppSettings config)
     {
         var actions = new List<HotkeyAction> { new(config.Activation, "Open grid", () => TogglePanel(false)) };
+        if (config.DrawPlacement is { } draw) actions.Add(new(draw, "Draw placement", () => ToggleDrawPlacement(false)));
         if (config.Undo is { } undo) actions.Add(new(undo, "Undo placement", () => _ = UndoAsync()));
         if (config.PartialWorkspace.Shortcut is { } fill) actions.Add(new(fill, "Fill empty slot", () =>
         {
@@ -87,7 +89,7 @@ public partial class App : Application
     private void TogglePanel(bool fromTray)
     {
         Diagnostics.Write($"Open grid requested. Busy={windows.Busy}; settingsActive={settingsWindow?.IsActive}; panel={panel is not null}");
-        if (windows.Busy || arrangeWindow is not null) return;
+        if (windows.Busy || arrangeWindow is not null || drawSession is not null) return;
         if (settingsWindow is not null) { settingsWindow.Activate(); return; }
         if (panel is not null) { panel.Dismiss(true); return; }
         string? error = null;
@@ -117,6 +119,40 @@ public partial class App : Application
         next.AutoArrangeRequested += ShowAutoArrange;
         next.Show();
         Diagnostics.Write("Focus panel shown.");
+    }
+    private void ToggleDrawPlacement(bool fromTray)
+    {
+        if (drawSession is { } active) { active.Cancel(true); return; }
+        if (windows.Busy || arrangeWindow is not null || panel?.IsOperationPending == true) return;
+        if (settingsWindow is not null) { settingsWindow.Activate(); return; }
+        string? error = null;
+        var target = panel is { IsActive: true } ? panel.Target : fromTray
+            ? externalForeground.ForTray(null) : WindowService.CaptureForeground(out error);
+        if (target is null || !WindowService.IsSameWindow(target) || WindowService.Capture(target.Handle, out _) is null)
+        { Notify(error ?? "Activate a resizable application window first."); return; }
+        var displays = MonitorService.GetAll();
+        if (displays.Count == 0) { Notify("No display is available."); return; }
+        panel?.Dismiss(false); lastTarget = target;
+        var next = new DrawPlacementSession(target, displays);
+        drawSession = next;
+        // No preset or grid shortcut can race a drag. The same draw shortcut can
+        // still toggle the overlay off; Escape and right-click work without it.
+        hotkeys?.TryApply(!paused && settings.DrawPlacement is { } shortcut
+            ? [new HotkeyAction(shortcut, "Cancel draw placement", () => next.Cancel(true))] : [], out _);
+        next.Closed += () =>
+        {
+            if (drawSession == next) drawSession = null;
+            hotkeys?.TryApply([], out _); RestoreHotkeys();
+        };
+        next.PlacementRequested += (display, bounds) => _ = PlaceDrawnAsync(target, display, bounds);
+        next.Show();
+    }
+
+    private async Task PlaceDrawnAsync(WindowTarget target, DisplayMonitor display, PixelRect bounds)
+    {
+        var result = await windows.PlaceDrawnAsync(target, display, bounds);
+        if (!result.Success) Notify(result.Message ?? "This app did not accept the drawn rectangle. Try a larger size.");
+        UpdateTray();
     }
     private void ShowAutoArrange(DisplayMonitor monitor, IReadOnlyList<PreviewWindowEntry> capturedWindows)
     {
@@ -168,6 +204,7 @@ public partial class App : Application
     }
     private async Task FillEmptySlotAsync(WindowTarget target, string? selectedDevice = null)
     {
+        if (drawSession is not null) return;
         if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
         var owner = panel;
         var result = await Placements.RunAsync(owner, target, async () =>
@@ -195,6 +232,7 @@ public partial class App : Application
     }
     private async Task UndoAsync(GridPanel? requestedOwner = null)
     {
+        drawSession?.Cancel(false);
         var owner = panel;
         var result = await Placements.RunAsync(requestedOwner ?? owner, null, windows.UndoAsync, requestedOwner is not null);
         if (!result.Success && owner is null) Notify(result.Message ?? "Undo failed.");
@@ -205,6 +243,7 @@ public partial class App : Application
     private void ShowSettings(string? warning)
     {
         if (exiting) return;
+        drawSession?.Cancel(false);
         if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
         panel?.Dismiss(false);
         if (settingsWindow is not null)
@@ -220,7 +259,7 @@ public partial class App : Application
     }
     private void RestoreHotkeys()
     {
-        if (exiting || paused || hotkeys is null || arrangeWindow is not null) return;
+        if (exiting || paused || hotkeys is null || arrangeWindow is not null || drawSession is not null) return;
         if (!hotkeys.TryApply(Actions(settings), out var error)) { paused = true; Notify(error!); UpdateTray(); }
     }
     private string? SaveSettings(AppSettings updated)
@@ -254,6 +293,7 @@ public partial class App : Application
     }
     private void TogglePause()
     {
+        drawSession?.Cancel(false);
         panel?.Dismiss(true);
         if (!paused) { hotkeys!.TryApply(Array.Empty<HotkeyAction>(), out _); paused = manuallyPaused = true; }
         else if (hotkeys!.TryApply(arrangeWindow is null ? Actions(settings) : Array.Empty<HotkeyAction>(), out var error)) paused = manuallyPaused = false;
@@ -266,6 +306,7 @@ public partial class App : Application
         tray = new Forms.NotifyIcon { Icon = trayIcon, Visible = true, Text = "GridPilot" };
         var menu = new Forms.ContextMenuStrip();
         menu.Items.Add("Open grid", null, (_, _) => Dispatcher.BeginInvoke(() => TogglePanel(true)));
+        menu.Items.Add("Draw placement", null, (_, _) => Dispatcher.BeginInvoke(() => ToggleDrawPlacement(true)));
         menu.Items.Add("Fill empty slot", null, (_, _) => Dispatcher.BeginInvoke(() =>
         {
             var target = externalForeground.ForTray(panel is { IsActive: true } ? panel.Target : null);
@@ -317,7 +358,7 @@ public partial class App : Application
     }
     private void OnUnexpectedError(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        Log(e.Exception); panel?.Dismiss(false); Notify("GridPilot could not complete that action. Details are in the local error log."); e.Handled = true;
+        Log(e.Exception); drawSession?.Cancel(false); panel?.Dismiss(false); Notify("GridPilot could not complete that action. Details are in the local error log."); e.Handled = true;
     }
     private static void Log(Exception exception)
     {
@@ -332,6 +373,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         exiting = true;
+        drawSession?.Cancel(false);
         panel?.Dismiss(false); settingsWindow?.Close(); arrangeWindow?.Close();
         if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook);
         hotkeys?.Dispose();

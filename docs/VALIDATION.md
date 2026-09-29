@@ -1,5 +1,15 @@
 # Validation
 
+## Draw placement, 29 September
+
+Added a full-desktop freehand placement mode with a configurable shortcut and tray entry. The geometry model uses physical pixel coordinates, independent of grid dimensions and gaps. One display's work area owns each drag. The target-only native path reuses exact verification, refusal rollback and ordinary Undo, including maximized state.
+
+Focused verification includes all drag directions, negative origins, work-area clipping, zero/tiny drags, minimum thresholds, cancelled/stale drafts, shortcut conflicts and backwards-compatible settings loading. Owned native/WPF fixtures verify overlay physical bounds, no movement during preview/cancel, reverse-drag commit, unchanged neighbors, exact native sizing, maximized Undo, stale target/display rejection, pending minimum-query cleanup and refusal recovery. `--draw` runs this focused native suite; the default native suite includes it as well.
+
+Release build passed with warnings treated as errors. Core tests passed **5,010 assertions** and the final focused draw suite passed **5,035 assertions** on the available **7680 × 4320 display at 200%**. The full native/WPF regression suite passed **5,501 assertions** before the final banner placement, stale-draft reset and keyboard-routing refinements; the subsequent core and focused runs cover those refinements. Independent review findings about paused shortcut cleanup and fixture sizing were fixed.
+
+Tests use disposable fixture windows without injecting desktop input. The inspected render contains only GridPilot's production overlay. Physical mouse/keyboard input, global shortcut use, mixed-DPI multi-monitor transitions, high contrast, Remote Desktop and representative production apps still require manual checks.
+
 ## Consolidated version, 26 September
 
 PR #31 consolidates #23, #25, #28, #29, #31 and #33 on the Smoked Glass main baseline. All six original PR heads are ancestors of the integration branch; the previously merged UI branch has the same tree as that baseline. Merge resolutions retain both visual shortcut editing and partial-workspace settings, their validation paths, and every native test mode. The default full suite now includes the shortcut-editor fixtures.

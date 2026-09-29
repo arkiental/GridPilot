@@ -56,14 +56,15 @@ internal static partial class Program
                 {
                     try
                     {
-                        if (args.Contains("--shortcuts")) await ShortcutEditorTests();
+                        if (args.Contains("--draw")) await DrawPlacementNativeTests();
+                        else if (args.Contains("--shortcuts")) await ShortcutEditorTests();
                         else if (args.Contains("--minimums")) await WindowMinimumNativeTests();
                         else if (args.Contains("--panel-lifecycle")) await PanelPlacementControllerNativeTests();
                         else if (args.Contains("--workspace")) await PartialWorkspaceNativeTests();
                         else if (args.Contains("--interactions")) await PlacementInteractionNativeTests();
                         else if (args.Contains("--arrangement")) await ArrangementNativeTests();
                         else if (args.Contains("--sidebar")) await SidebarNativeTests();
-                        else { await NativeTests(); await PartialWorkspaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); }
+                        else { await NativeTests(); await PartialWorkspaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); }
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
@@ -77,6 +78,7 @@ internal static partial class Program
     }
     private static void CoreTests()
     {
+        DrawPlacementTests();
         WindowMinimumTests();
         ArrangementTests();
         PartialWorkspaceTests();

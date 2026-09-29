@@ -20,6 +20,22 @@ On first launch, review **Settings** and click **Save settings**. GridPilot stay
 
 ## Arrange a window
 
+### Draw the window directly on the desktop
+
+Use **Draw placement** to choose an exact position and size with one drag:
+
+1. Activate the application window.
+2. Press **Ctrl + Alt + D** (the default for new settings), or choose **Draw placement** from the GridPilot tray menu.
+3. Press at one corner on the destination display, drag to the opposite corner, and release. The orange outline and size label show the requested visible window bounds in physical pixels. You can drag in any direction.
+
+The red dashed outline marks the selected window's original position. Drawing has no grid snapping or configured gaps and moves only that window; other windows may remain underneath. The selected HWND and process are captured before the overlay opens. Each rectangle stays within the starting display's usable work area, excluding the taskbar. Releasing on another display cancels that drag so you can start again there.
+
+**Escape**, right-click, or the same shortcut cancels. Switching to another app, losing mouse capture, or changing display geometry cancels the operation or current drag without applying it. **Undo last placement** in the tray (or your configured Undo shortcut after drawing) restores the previous bounds, including maximized state. Reported minimum sizes are checked before release where available; too-small rectangles remain unapplied. If an app enforces another size limit during placement, GridPilot restores the previous position rather than silently enlarging the rectangle. Unverified recovery remains available through Undo.
+
+Keyboard: arrows move the crosshair by one physical pixel; Shift + arrows moves ten. Space or Enter sets the first corner, then sets the second corner and applies. Tab switches displays. Existing settings keep their previous shortcuts intact: assign **Draw placement** under **Settings → General** if its shortcut field is empty. Backspace clears this optional shortcut; the tray entry remains available.
+
+### Use the placement grid
+
 1. Activate a resizable desktop application window.
 2. Press **Ctrl + Shift + Space** (configurable).
 3. Choose a destination display if needed.

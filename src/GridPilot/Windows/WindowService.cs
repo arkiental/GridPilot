@@ -255,6 +255,15 @@ public sealed class WindowService
         finally { Busy = false; }
     }
 
+    // Freehand placement deliberately allows overlap, but never reflows neighbors
+    // or expands an undersized request. Use the exact, verified rollback path.
+    internal async Task<PlacementResult> PlaceDrawnAsync(WindowTarget target, DisplayMonitor display, PixelRect bounds)
+    {
+        var result = await ArrangeAsync(display, [(target, bounds)]);
+        if (result.Success && IsSameWindow(target)) Native.SetForegroundWindow(target.Handle);
+        return result.Success ? result with { Message = "Window placed. Undo is available from the tray." } : result;
+    }
+
     internal async Task<PlacementResult> ArrangeAsync(DisplayMonitor expected, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements,
         IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>? expectedOriginals = null)
     {
