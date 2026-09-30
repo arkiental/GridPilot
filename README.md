@@ -20,6 +20,30 @@ On first launch, review **Settings** and click **Save settings**. GridPilot stay
 
 ## Arrange a window
 
+### Draw the window directly on the desktop
+
+Use **Draw placement** to choose an exact position and size with one drag:
+
+1. Activate the application window.
+2. Press **Ctrl + Alt + D** (the default for new settings), or choose **Draw placement** from the GridPilot tray menu.
+3. Press at one corner on the destination display, drag to the opposite corner, and release. The orange outline and size label show the requested visible window bounds in physical pixels. You can drag in any direction.
+
+The red dashed outline marks the selected window's original position. A smaller **cyan dashed outline always shows its minimum size** during a drag, anchored to your first click and current drag direction. The orange outline shows the actual placement: releasing a smaller rectangle automatically uses the minimum width and height. Near a display edge, the preview shifts inward just enough to keep that minimum on-screen. A click without movement does not place anything; an app whose minimum exceeds the whole work area cannot be placed there.
+
+Press **S while a mouse or keyboard drag is active** to toggle snapping. The default increment is **32 physical pixels**, measured from the first corner, and snapping initially starts **OFF**. The current state and increment appear in the overlay. Change the key, increment (1–1024 px), and initial on/off preference under **Settings → General**. The latest toggled state is remembered even when you cancel, and is saved when drawing closes. The toggle is a local drawing key, never registered globally, and does nothing before a drag starts. Holding the key does not repeatedly toggle it. Minimum sizes and monitor boundaries take precedence over the snap increment.
+
+Hold **Ctrl** to constrain the rectangle to free space between other windows. Start in empty space, then drag toward the opposite corner; the preview stops at neighboring window edges. Releasing Ctrl restores unrestricted drawing. The selected window is excluded from obstacles. The minimum size must fit in that free space; otherwise placement is unavailable while Ctrl is held. Occupancy is checked again when applying, with rollback if another window enters the destination.
+
+Press **Shift** during a drag to move the cursor to the opposite corner and lock the corner you were editing. Continue dragging to adjust the other side; press Shift again to switch back. Holding Shift swaps only once. The actual preview, including minimum-size expansion and Ctrl constraints, stays unchanged at the switch. If your custom snapping shortcut includes Shift, tapping Shift alone swaps on release, so the snapping chord continues to toggle without moving the cursor.
+
+Drawing does not add grid gaps and moves only that window; without Ctrl, other windows may remain underneath. The selected HWND and process are captured before the overlay opens. Each rectangle stays within the starting display's usable work area, excluding the taskbar. Releasing on another display cancels that drag so you can start again there. The desktop background is captured once in memory before opening and remains still during drawing. Pointer updates are coalesced to display frames over a normal opaque WPF surface; if capture is unavailable, a live transparent fallback is used. Captures are never saved by the app.
+
+**Escape**, right-click, or the same shortcut cancels. Switching to another app, losing mouse capture, or changing display geometry cancels the operation or current drag without applying it. **Undo last placement** in the tray (or your configured Undo shortcut after drawing) restores the previous bounds, including maximized state. Reported minimum sizes are checked without moving the window; a release before detection finishes waits for the bounded query and then applies the minimum-adjusted rectangle. Switching apps during that wait cancels. Unknown app limits use an estimated guide; if an app enforces additional limits during native placement, GridPilot restores the previous position. Unverified recovery remains available through Undo.
+
+Keyboard: arrows move the crosshair by one physical pixel; **Alt + arrows** moves ten. Space or Enter sets the first corner, then sets the second corner and applies. Ctrl constrains free space and Shift swaps corners, just as in a mouse drag. Tab switches displays. Existing settings keep their previous shortcuts intact: assign **Draw placement** under **Settings → General** if its shortcut field is empty. Backspace clears this optional shortcut; the tray entry remains available.
+
+### Use the placement grid
+
 1. Activate a resizable desktop application window.
 2. Press **Ctrl + Shift + Space** (configurable).
 3. Choose a destination display if needed.

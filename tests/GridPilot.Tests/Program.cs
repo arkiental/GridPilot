@@ -56,7 +56,9 @@ internal static partial class Program
                 {
                     try
                     {
-                        if (args.Contains("--shortcuts")) await ShortcutEditorTests();
+                        if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
+                        else if (args.Contains("--draw")) await DrawPlacementNativeTests();
+                        else if (args.Contains("--shortcuts")) await ShortcutEditorTests();
                         else if (args.Contains("--elastic")) await ElasticFixtureTests();
                         else if (args.Contains("--minimums")) await WindowMinimumNativeTests();
                         else if (args.Contains("--panel-lifecycle")) await PanelPlacementControllerNativeTests();
@@ -67,7 +69,7 @@ internal static partial class Program
                         else if (args.Contains("--arrangement")) await ArrangementNativeTests();
                         else if (args.Contains("--reference-rail")) await ReferenceRailNativeTests();
                         else if (args.Contains("--sidebar")) await SidebarNativeTests();
-                        else { await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); }
+                        else { await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); }
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
@@ -82,6 +84,7 @@ internal static partial class Program
     private static void CoreTests()
     {
         ReferenceCropTests();
+        DrawPlacementTests();
         WindowMinimumTests();
         ArrangementTests();
         PartialWorkspaceTests();

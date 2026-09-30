@@ -6,6 +6,7 @@ namespace GridPilot.UI;
 
 public sealed class ShortcutBox : TextBox
 {
+    public bool DrawingOnly { get; init; }
     public Shortcut? Value { get; private set; }
     public string? CaptureError { get; private set; }
     public event Action? Changed;
@@ -45,7 +46,7 @@ public sealed class ShortcutBox : TextBox
     internal void RestoreError(string error) { CaptureError = error; Text = error; }
     internal void Record(Shortcut? shortcut)
     {
-        if (shortcut?.Validate() is { } error) { RestoreError(error); Changed?.Invoke(); return; }
+        if ((DrawingOnly ? DrawSnappingSettings.ValidateShortcut(shortcut) : shortcut?.Validate()) is { } error) { RestoreError(error); Changed?.Invoke(); return; }
         Set(shortcut);
         Changed?.Invoke();
     }
