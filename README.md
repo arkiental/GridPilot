@@ -48,6 +48,8 @@ Clicking one cell proposes that rectangle through the same overlap-reflow rules 
 
 **Fill empty slot** is a separate, deliberate placement mode. Configure **Settings → Partial workspace** to reserve an area, choose slot rows/columns and assign an optional global shortcut. The default upper-half 4 × 2 workspace leaves the lower half alone. The settings diagram shows current vacant/occupied slots; hover occupied slots for window names. The shortcut places the active app in the first vacant fitting slot without moving other apps. The tray provides the same action. See [partial workspace details](docs/PARTIAL_WORKSPACE.md).
 
+**More → Fit into free space** discovers empty rectangles across the selected display without workspace configuration. Review the orange destination and physical pixel dimensions, use **Previous/Next** for up to three alternatives, then **Apply**. Only the selected window moves; Undo restores it. Changed window arrangements require reviewing a fresh preview and applying again. **Cancel** returns to manual placement; **Escape** closes the panel. See [free space details](docs/FREE_SPACE.md).
+
 - Grid: independently configurable **1–12 columns and rows**, default **6 × 6**.
 - Gap: **0–64 logical pixels**, default **8**. Adjacent placements share one gap; the same gap appears at outer edges. Gaps scale with the destination display.
 - Twelve built-in proportional placements: halves, quarters, thirds, and fill available space.
@@ -98,3 +100,23 @@ The publish script creates a self-contained folder and ZIP in `artifacts`. `Inst
 Optional diagnostic switches: `--background` starts in the tray; `--diagnostics` records events in `%LOCALAPPDATA%\GridPilot\diagnostics.log`; `--ui-test` exposes the grid as a regular taskbar window for desktop automation. Normal operation does not write diagnostic traces. Unexpected errors are recorded in `errors.log` in the same folder. There is no network service, account, or telemetry.
 
 Auto Arrange supports **Shift-drag splitting**: drag onto a window and hold Shift to choose its left, right, top or bottom half. Review the preview, then Accept layout. See [Auto Arrange](docs/AUTO_ARRANGE.md).
+
+## Reference rail
+
+Right-click a window card in Focus (keyboard: select the card and press Shift+F10), then **Pin to reference rail**. Draw a rectangle on the fitted full-window preview, or type X/Y/Width/Height in source pixels; **Pin crop** commits and Cancel/Escape leaves the session unchanged. The outlined crop is also shown in a separate result preview. Coordinates include the complete DWM window surface, including chrome; draw inside the content to exclude it.
+
+The independent rail holds up to four crops, including multiple crops of one source. **Add crop** opens the supported-window picker. **Open source** explicitly activates the original HWND+PID; previews never forward editing input. **Edit crop**, **Remove**, **Remove all**, **Always on top**, and edge-snap buttons are available. Drag/resize normally. Closing Focus leaves the rail visible. **Hide rail** (or its close button) releases previews; the tray's **Show reference rail** reopens the session.
+
+Crops are normalized regions, so source resizing scales the region; scrolling, zooming, and page reflow change its contents. They do not track particular images or text. Minimized/closed/unavailable sources get labeled placeholders; closed bindings never rebind. Some protected or unsupported apps display blank compositor content even when registration succeeds. No fallback capture is attempted. Session cards, source handles, and images are never saved; restarting starts empty. No rail preferences are persisted in this first version.
+
+## Elastic layouts
+
+**Elastic dividers** appear automatically wherever the current layout has a supported shared boundary. In Auto Arrange, drag a divider, use arrows (8 physical pixels), or enter an exact **Divider px** coordinate to update the proposal; the live window previews remain visible, and **Accept layout** moves the windows. In Focus, drag an orange divider between already arranged windows, or focus it for arrow and numeric adjustment. Releasing the drag, pressing Enter, or choosing **Apply divider** uses the existing verified group placement and Undo. Escape cancels an active edit. Fixed places, locked ratios and effective minimums remain enforced. See [Auto arrange](docs/AUTO_ARRANGE.md) and [placement interactions](docs/PLACEMENT_INTERACTIONS.md).
+
+## Workspace scenes
+
+Open **Scenes** in the Focus panel or **Workspace scenes…** from the tray. Name and save the current desktop as Create, Review, Present, or any custom scene. Save captures up to 32 visible resizable windows across connected displays; minimized and unavailable windows are excluded. Up to 50 scenes persist locally, with rename and delete controls.
+
+To restore, explicitly choose an open window for each saved place (the list shows title, PID and HWND), choose a destination display when a saved display is missing, then **Preview restore** and **Restore preview**. Every place starts skipped; multiple windows from one app are never guessed from their title or executable. Missing apps are identified and may be skipped or explicitly replaced. GridPilot never launches an app. Saved files contain app metadata and normalized rectangles, never HWND/PID.
+
+Scenes scale their captured visible rectangles to destination work areas; frames crossing work-area edges are fitted inside the selected display. A maximized source is saved as its visible rectangle and restored as a normal window, not a maximized-state flag. Overlapping saved places are supported; window stacking order, minimized state, documents and application content are not restored. Saved minimum/locked shape rules and available native minimum sizes are checked; fixed Auto arrange places are overridden by the explicitly selected scene geometry. Other open windows blocking a destination stop restoration. Native refusal or changed identity/display rolls back the group; one verified Undo restores all moved windows, including their previous maximized state. Refresh open windows after other desktop changes or after Undo.

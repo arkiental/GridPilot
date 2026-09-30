@@ -159,6 +159,7 @@ internal sealed partial class AutoArrangeWindow
     }
     private void RenderPlan()
     {
+        AbandonElasticCapture();
         ClearSplitPreview(); DisposePlanViews(); canvas.Children.Clear();
         foreach (var region in settings.ArrangementAreas.Where(a => a.Monitor == monitor.Device).Select(a => a.Region).Concat(CurrentPlaces().Select(p => p.Region)).Distinct())
         {
@@ -170,20 +171,23 @@ internal sealed partial class AutoArrangeWindow
         foreach (var slot in plan.Slots)
         {
             var row = rows[int.Parse(slot.Id, System.Globalization.CultureInfo.InvariantCulture) - 1];
-            var thumbnail = new WindowThumbnail(row.Entry.Target) { IsHitTestVisible = false, Margin = new(2) };
+            // Keep a compositor-free corridor at frame edges so the always-visible
+            // divider remains above native DWM content, including when gap is zero.
+            var thumbnail = new WindowThumbnail(row.Entry.Target) { IsHitTestVisible = false, Margin = new(8) };
             var content = new Grid(); content.RowDefinitions.Add(new()); content.RowDefinitions.Add(new() { Height = new GridLength(Math.Min(28, slot.Bounds.Height * scale * .3)) }); content.Children.Add(thumbnail);
             var label = new TextBlock { Text = $"{slot.Id}. {row.Entry.Target.Title} · {slot.Bounds.Width} × {slot.Bounds.Height}", FontSize = 11, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new(4, 1, 4, 1), VerticalAlignment = VerticalAlignment.Center, IsHitTestVisible = false }; Grid.SetRow(label, 1); content.Children.Add(label);
             var frame = new Border { Width = slot.Bounds.Width * scale, Height = slot.Bounds.Height * scale, BorderThickness = new(3), Child = content, Background = Brushes.Transparent, Focusable = true, ToolTip = row.Entry.Target.Title + $"\nProposed frame: {slot.Bounds.Width} × {slot.Bounds.Height}\nLive current content, cropped to fit. Drag to swap frames. Hold Shift to split: left, right, top or bottom." };
             Canvas.SetLeft(frame, (slot.Bounds.Left - monitor.Work.Left) * scale); Canvas.SetTop(frame, (slot.Bounds.Top - monitor.Work.Top) * scale); canvas.Children.Add(frame);
             planViews.Add((row, thumbnail, frame)); WireSelectionAndSwap(frame, row);
         }
-        UpdateSelection(); UpdateThumbnails();
+        RenderDividers(); UpdateSelection(); UpdateThumbnails();
     }
     private bool ValidateLiveTargets()
     {
         bool valid = !rows.Where(r => r.Include.IsChecked == true).Any(r => PreviewWindows.Validate(r.Entry) is not null);
         applyButton.IsEnabled = !applying && !detectingMinimums && valid && plan.Success;
         reroll.IsEnabled = !applying && !detectingMinimums && valid && plan.Success && candidates.Count > 1;
+        if (!valid) CancelElastic();
         if (!valid) status.Text = "An included window is unavailable. Select it to exclude it, or wait for its dialog to close.";
         else if (targetsUnavailable) status.Text = "Windows are available again. Your proposal is unchanged.";
         targetsUnavailable = !valid;
@@ -203,7 +207,7 @@ internal sealed partial class AutoArrangeWindow
             if (content.Template.FindName("PART_ScrollContentPresenter", content) is ScrollContentPresenter outer) clip.Intersect(Viewport(outer));
             var previewClip = Rect.Intersect(clip, Viewport(canvas));
             foreach (var view in planViews)
-                if (view.Row != splitTarget) view.Thumbnail.Update(this, handle, previewClip);
+                if (view.Row != splitTarget) view.Thumbnail.Update(this, handle, previewClip); else view.Thumbnail.Dispose();
             if (sidebar.Template.FindName("PART_ScrollContentPresenter", sidebar) is ScrollContentPresenter presenter)
             {
                 var sidebarClip = Rect.Intersect(clip, Viewport(presenter));

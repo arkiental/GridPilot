@@ -8,6 +8,8 @@ namespace GridPilot.Windows;
 // It never asks an application's UI thread to paint (PrintWindow can hang indefinitely).
 internal sealed class WindowThumbnail(WindowTarget target) : FrameworkElement, IDisposable
 {
+    internal GridPilot.UI.ReferenceCrop? Crop { get; set; }
+    internal (int Width, int Height) SourceSize { get; private set; }
     private nint registration;
     private Properties? last;
     private bool available;
@@ -49,7 +51,7 @@ internal sealed class WindowThumbnail(WindowTarget target) : FrameworkElement, I
         if (viewport.IsEmpty || viewport.Width <= 0 || viewport.Height <= 0 ||
             !double.IsFinite(viewport.X) || !double.IsFinite(viewport.Y) || !double.IsFinite(viewport.Width) || !double.IsFinite(viewport.Height))
         { Dispose(); return; }
-        if (!IsVisible || ActualWidth <= 0 || ActualHeight <= 0 || !WindowService.IsSameWindow(target) || Native.IsIconic(target.Handle) || !Native.IsWindowVisible(target.Handle))
+        if (!IsVisible || ActualWidth <= 0 || ActualHeight <= 0 || !WindowService.IsSameWindow(target) || Native.IsIconic(target.Handle) || !Native.IsWindowVisible(target.Handle) || (Native.DwmGetWindowInt(target.Handle, 14, out int cloaked, sizeof(int)) == 0 && cloaked != 0))
         { Dispose(); return; }
         var dpi = VisualTreeHelper.GetDpi(owner);
         var logical = TransformToAncestor(owner).TransformBounds(new Rect(RenderSize));
@@ -57,12 +59,22 @@ internal sealed class WindowThumbnail(WindowTarget target) : FrameworkElement, I
         var clip = new Rect(viewport.X * dpi.DpiScaleX, viewport.Y * dpi.DpiScaleY, viewport.Width * dpi.DpiScaleX, viewport.Height * dpi.DpiScaleY);
         if (!area.IntersectsWith(clip)) { Dispose(); return; }
         if (registration == 0 && DwmRegisterThumbnail(destinationHandle, target.Handle, out registration) != 0) { registration = 0; SetAvailable(false); return; }
-        if (DwmQueryThumbnailSourceSize(registration, out var size) != 0 || Fit(size.Width, size.Height, area, clip) is not { } fitted)
+        if (DwmQueryThumbnailSourceSize(registration, out var size) != 0) { Dispose(); return; }
+        SourceSize = (size.Width, size.Height);
+        if ((Crop is { } crop ? FitCrop(crop, size.Width, size.Height, area, clip) : Fit(size.Width, size.Height, area, clip)) is not { } fitted)
         { Dispose(); return; }
         var properties = new Properties { Flags = 0x1f, Destination = ToNative(fitted.Destination), Source = ToNative(fitted.Source), Opacity = 255, Visible = true, ClientOnly = false };
         if (last is { } prior && prior.Equals(properties)) return;
         if (DwmUpdateThumbnailProperties(registration, ref properties) != 0) { Dispose(); return; }
         last = properties; SetAvailable(true);
+    }
+    internal static (PixelRect Destination, PixelRect Source)? FitCrop(GridPilot.UI.ReferenceCrop crop, int width, int height, Rect area, Rect viewport)
+    {
+        var source = crop.Pixels(width, height);
+        if (!source.IsValid) return null;
+        var fitted = GridPilot.UI.ReferenceCrop.Contain(source.Width, source.Height, area);
+        var mapping = Fit(source.Width, source.Height, fitted, viewport);
+        return mapping is { } m ? (m.Destination, new PixelRect(source.Left + m.Source.Left, source.Top + m.Source.Top, source.Left + m.Source.Right, source.Top + m.Source.Bottom)) : null;
     }
     private static Native.Rect ToNative(PixelRect rect) => new() { Left = rect.Left, Top = rect.Top, Right = rect.Right, Bottom = rect.Bottom };
     private void SetAvailable(bool value) { if (available != value) { available = value; InvalidateVisual(); } }
@@ -84,3 +96,4 @@ internal sealed class WindowThumbnail(WindowTarget target) : FrameworkElement, I
     [DllImport("dwmapi.dll")] private static extern int DwmQueryThumbnailSourceSize(nint thumbnail, out Size size);
     [DllImport("dwmapi.dll")] private static extern int DwmUpdateThumbnailProperties(nint thumbnail, ref Properties properties);
 }
+

@@ -39,6 +39,7 @@ internal static partial class Program
             Assert(Windows.ApplicationIdentity.Read(entries[0].Target) == Windows.ApplicationIdentity.Read(entries[1].Target), "same app windows share persistent rule identity");
             ArrangementSheetTests(monitor, entries);
             await ArrangementPreviewNativeTests(monitor, entries);
+            await ElasticLayoutNativeTests(monitor, entries);
         }
         finally { if (!fixture.HasExited) { fixture.Kill(); await fixture.WaitForExitAsync(); } }
     }
@@ -201,7 +202,7 @@ internal static partial class Program
         Assert(settings.Clone().ArrangementPreferences[0].MinimumWidth == 640 && settings.Validate() is null, "app rules persist through settings serialization");
         settings.ArrangementPreferences.Add(new() { AppId = "EXE:TEST" }); Assert(settings.Validate() is not null, "duplicate executable rules rejected");
         SmartArrangementTests();
-        ArrangementSplitTests();
+        ArrangementSplitTests(); ElasticLayoutTests();
     }
 
     private static void SmartArrangementTests()
