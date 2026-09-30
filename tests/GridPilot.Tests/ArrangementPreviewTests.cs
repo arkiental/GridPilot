@@ -128,7 +128,10 @@ internal static partial class Program
         retryUndo.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30); Assert(retryUndo.IsEnabled, "failed Undo retains retry access while snapshots remain");
         retryUndo.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(30); Assert(!retryUndo.IsEnabled, "successful Undo reflects consumed service snapshots"); rollback.Close();
 
-        var learned = new AutoArrangeWindow(monitor, new(), _ => null, (_, _) => { }, entries,
+        // This callback-only preview test needs room for the intentionally large learned limit.
+        // Use synthetic geometry so a 1080p desktop does not turn the feasible case into a refusal.
+        var learnedMonitor = monitor with { Work = new PixelRect(0, 0, 3840, 2160) };
+        var learned = new AutoArrangeWindow(learnedMonitor, new(), _ => null, (_, _) => { }, entries,
             applyAsync: (_, _) => Task.FromResult(new PlacementResult(false, "Size refused; restored.", new(entries[0].Target, 1600, 1200))));
         try
         {

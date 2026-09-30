@@ -23,6 +23,7 @@ public sealed class PlacementPreset
 public sealed class AppSettings
 {
     public int Version { get; set; } = 1;
+    public List<WorkspaceScene> Scenes { get; set; } = [];
     public int Columns { get; set; } = 6;
     public int Rows { get; set; } = 6;
     public double Gap { get; set; } = 8;
@@ -44,6 +45,7 @@ public sealed class AppSettings
 
     public string? Validate()
     {
+        if (Scenes is null || Scenes.Count > 50 || Scenes.Any(s => s is null || s.Validate() is not null) || Scenes.Select(s => s.Id).Distinct().Count() != Scenes.Count) return "Keep at most 50 valid scenes with unique identities.";
         if (Version != 1) return "This settings file was made by a different version of GridPilot.";
         if (!double.IsFinite(ArrangementUiScale) || (ArrangementUiScale != 0 && ArrangementUiScale is < 1 or > 2.5)) return "Arrangement interface scale must be Auto or 100–250%.";
         if (ArrangementAreas is null || ArrangementAreas.Count > 32 || ArrangementAreas.Any(a => a is null || !a.IsValid) || ArrangementAreas.Select(a => a.Id).Distinct().Count() != ArrangementAreas.Count)

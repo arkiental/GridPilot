@@ -1,5 +1,33 @@
 # Validation
 
+## Always-on dividers in Focus and Auto Arrange (issues #36–#38)
+
+The Auto Arrange divider toggle was removed. Release build with warnings as errors passed, the core suite passed **5,355 assertions**, and the complete owned native/WPF suite passed **5,918 assertions** on one **1920 × 1080 display at 100%**. A first full-suite run failed an existing desktop compositor pixel assertion; two successive complete reruns passed. The focused `--elastic` suite passed **5,375 assertions** after independent review fixes.
+
+Owned fixture checks verify that both DWM plan thumbnails remain registered after keyboard and pointer-style divider frame updates, and that Escape restores the proposal without native movement. A captured compositor screenshot shows fixture content visible in both frames beside the divider. Focus now discovers exact shared boundaries in its captured physical-pixel arrangement, previews both adjusted frames, and sends an accepted edit through its existing grouped placement callback. Focus fixture checks cover keyboard preview, Escape cancellation, invalid Alt-drag recovery, unchanged native fixture bounds before apply, and group submission. The reviewer found and verified fixes for overlay lifecycle and invalid Alt-drag release; no blocker remained. These checks use owned windows and do not inject desktop input. Actual pointer dragging, accessibility tooling, mixed-monitor DPI, production apps, and zero-gap compositor layering remain manual checks.
+
+## Combined workspace features, 27 September (PR #35)
+
+The combined branch includes Workspace Scenes (#15), Elastic Layouts (#16), Reference Rail (#17), Fit into free space (#34), and all existing main-branch features. Release build with warnings as errors passed; core suite passed **5,355 assertions**; the complete owned native/WPF suite passed **5,896 assertions** on one **1920 × 1080 display at 100%**. Every new focused suite also passed before integration. The default full suite includes scene restoration, reference crop pixel/lifecycle checks, and Elastic preview checks alongside the existing placement, sidebar, shortcut, recovery and Undo coverage.
+
+The earlier learned-size preview fixture assumed a 1600 × 1200 frame could fit on this 1080p desktop. That callback-only test now uses explicit synthetic 3840 × 2160 work geometry; no production placement rule was relaxed. The combined full suite passes beyond that former baseline failure.
+
+Independent reviewers examined each new feature and the shared application/native integration. One crop-editor capture-loss finding was fixed and re-reviewed: interruption restores the previous crop and clears the gesture. The final review found no actionable defects. Tests injected no desktop input and moved only disposable owned fixtures.
+
+Hardware/manual limits remain: actual multi-monitor/mixed-DPI disconnects, 8K100%, production/protected/RDP apps, assistive technology and high-contrast visual inspection. Scenes restore saved frame geometry with explicit current-window mappings; they do not launch apps, restore documents, or preserve saved stacking/maximized state. Grouped Undo retains pre-operation maximized state. Rail cards and HWND/PID bindings are session-only.
+
+## Fit into free space (issue #34)
+
+On 2026-09-27, the Release build with `-warnaserror` completed with zero warnings/errors; core checks passed **5,127 assertions**. The focused `dotnet run --project tests/GridPilot.Tests -c Release --no-build -- --free-space` suite passed **5,149 assertions** on one **1920 × 1080 display at 100%**. No mouse or keyboard input was injected; placement tests moved only their owned fixtures.
+
+Core coverage includes exhaustive small-coordinate largest-rectangle comparison, empty/full displays, overlapping and duplicate obstacles, arbitrary edges, narrow fragments, touching edges, zero/nonzero gaps, negative origins, cross-display clipping, 100/150/200% DPI, minimums, ratios, ordering, cancellation and work-limit failure. The dense synthetic catalog of 250 obstacles reached the explicit search limit in **129–144 ms** across these runs; this is local measurement, not a latency guarantee.
+
+Owned native fixtures cover exact target-only placement, unchanged same-app neighbors, disabled-window occupancy, search without movement, Undo, native minimum refusal/restoration, changed and newly appearing obstacles, detected concurrent changes after dispatch, stale HWND/PID, closed targets, cancellation while a panel search is pending, and stale Apply refreshing without submission. Existing native placement tests reached and passed their single-cell and minimum-query coverage.
+
+The required full native command was run and **did not pass**: the unchanged Auto arrange test `revised preview obeys observed app dimensions` requires a feasible 1600 × 1200 frame, exceeding this display's work area. The coordinator reproduced the same failure on unmodified `origin/main` on this desktop. Subsequent full-suite tests therefore did not run in that invocation; the focused free-space suite was run separately.
+
+Manual coverage remains: mixed-monitor hardware/DPI changes, disconnected-display interaction, 8K at 100%, real elevated/irregular app behavior, screen-reader announcements, high contrast and small-display visual inspection. Native calls cannot atomically prevent unrelated applications moving themselves; detected conflicts trigger verified restoration.
+
 ## Consolidated version, 26 September
 
 PR #31 consolidates #23, #25, #28, #29, #31 and #33 on the Smoked Glass main baseline. All six original PR heads are ancestors of the integration branch; the previously merged UI branch has the same tree as that baseline. Merge resolutions retain both visual shortcut editing and partial-workspace settings, their validation paths, and every native test mode. The default full suite now includes the shortcut-editor fixtures.
@@ -128,3 +156,27 @@ Release build with warnings as errors passed with zero warnings. Coordinator ind
 Independent GPT-6 Astra High review approved the implementation after selected-text contrast and theme-refresh findings were fixed. Miniature theme subscriptions follow Loaded/Unloaded lifetime; actual system High Contrast toggling was not performed. The owned render below is a WPF fixture, not a screenshot of a user's settings or a claim of mixed-monitor hardware validation.
 
 ![Shortcut editor at minimum width](images/shortcuts-editor.png)
+
+## Reference Rail (#17)
+
+Release warnings-as-errors build and core suite passed (4999 assertions). Focused owned-fixture `--reference-rail` passed (5031 assertions), exercising the four-card limit, five hide/reopen cycles, minimize/restore, close placeholders, and shutdown. Geometry covers explicit source offsets, conservative rounding, normalized resize mapping, invalid/zero crops, letterbox pointer clamping, negative destinations, and aspect-preserving containment.
+
+Rendering uses DWM source rectangles with `ClientOnly=false`; full source dimensions come from `DwmQueryThumbnailSourceSize`, avoiding visible-frame/client offsets. The crop selection overlay is a separate transparent popup HWND, above compositor content. Cards and result wells keep all controls outside their thumbnail rectangles. A 500 ms dispatcher timer checks at most four identities/geometry while visible; DWM supplies pixel updates independently. Hide stops the timer and synchronously releases every registration; visible scrolling only retains intersecting surfaces. Repeated-cycle fixture checks observed registrations returning to zero on every hide and source invalidation. No CPU screenshot polling, pixel persistence, or network transmission is used.
+
+Remaining manual/hardware coverage: production browser/photo+palette usability, four-card CPU profiling under heavy application load, accessibility inspection/high contrast, RDP/protected apps, mixed-DPI display disconnect, and 8K100% (#19/#20). Successful native registration does not prove protected content delivery. Full-suite results are tracked on the combined PR.
+
+Expanded owned WPF quadrant fixture verified red cropped pixels, cyan updates while covered, source/rail resize preserving the region, numeric source-pixel validation, and cancellation on lost mouse capture. Pixel reads use one pixel at the owned rail preview center only. Warmed four-card session measured 31.2 ms process CPU over 1509 ms wall, with two visible registrations (scrolled cards virtualized), process handles stable at 919, and no timer or registrations while hidden. Results are observations, not performance guarantees.
+
+## Elastic Layouts (#16)
+
+Core coverage includes vertical/horizontal T junctions, exact feasible endpoints, minimum refusal, saved-place/ratio locks, negative origins, zero/nonzero physical gutters, DPI conversion, repeated reversal without drift, unsupported near-miss geometry, and swapped-identity topology rebuilding. Owned WPF regression covers geometry-only keyboard editing, Escape/cancel restoration, DWM suppression, and closing without acceptance. Existing batch fixtures cover verified application, refusal recovery, stale identities and grouped Undo; Elastic uses that same path.
+
+Local core sample: 1000 32-frame topology rebuilds took 278–281 ms (diagnostic, not an FPS guarantee). Mixed-DPI/8K displays, production application dynamic limits, assistive technology, high contrast and pointer usability remain manual hardware checks. No desktop input was injected.
+
+Release build with warnings as errors passed. Core: 5199 assertions; focused owned WPF/native --elastic run: 5207 assertions, passed. Full integration suite is recorded separately by the coordinating PR. A transient Windows Application Control load failure on an earlier binary cleared after the next normal rebuild; no security settings were altered.
+## Workspace scenes (#15)
+
+- Core coverage: settings roundtrip and backward defaults, unique identities, malformed/null scene rejection, no persisted native identities, negative-origin geometry, display scaling and oversized frames.
+- `dotnet run --project tests/GridPilot.Tests -c Release --no-build -- --scenes` exercises owned fixtures only: explicit same-app assignment, duplicate identity refusal, preview invalidation, missing-display remap, save-name retention, grouped Undo, app-size refusal rollback and stale display rejection. With multiple connected displays it places the fixtures on different displays in one transaction.
+- Manual: try capture/save/rename/delete and restore after reconnecting mixed-DPI displays; verify keyboard navigation, high contrast and small work areas. Source maximized geometry restores as a normal rectangle; Undo restores the pre-operation native state. No app launching, document reopening or saved Z-order is promised.
+- Local validation on 2026-09-27: Release build with warnings as errors passed; core suite passed 5,000 assertions; focused scenes suite passed 5,011 assertions on one connected display. Multi-display and mixed-DPI hardware behavior remains a manual check.

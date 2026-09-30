@@ -11,22 +11,27 @@ internal sealed record PreviewWindowEntry(WindowTarget Target, PixelRect Bounds,
 
 internal static class PreviewWindows
 {
-    internal static IReadOnlyList<PreviewWindowEntry> Capture()
+    internal static IReadOnlyList<PreviewWindowEntry> Capture() => Capture(false);
+
+    internal static IReadOnlyList<PreviewWindowEntry> Capture(bool verifyOccupancy, CancellationToken cancellation = default)
     {
         using var dpi = new Native.DpiScope();
         var result = new List<PreviewWindowEntry>();
         var seen = new HashSet<nint>();
         // Follow the documented Z order. Both a visited set and a hard limit protect against a changing desktop.
-        for (nint window = GetTopWindow(0); window != 0 && seen.Count < 4096 && seen.Add(window);)
+        nint window = GetTopWindow(0);
+        for (; window != 0 && seen.Count < 4096 && seen.Add(window);)
         {
+            cancellation.ThrowIfCancellationRequested();
             nint next = GetWindow(window, 2); // GW_HWNDNEXT: next lower window in Z order.
-            if (Read(window) is { } entry) result.Add(entry);
+            if (Read(window, verifyOccupancy) is { } entry) result.Add(entry);
             window = next;
         }
+        if (verifyOccupancy && window != 0) throw new InvalidOperationException("Free space could not be verified: the window catalog changed or exceeded its capture limit.");
         return result;
     }
 
-    private static PreviewWindowEntry? Read(nint window)
+    private static PreviewWindowEntry? Read(nint window, bool verifyOccupancy)
     {
         Native.GetWindowThreadProcessId(window, out var process);
         if (process == 0 || process == Environment.ProcessId || !Native.IsWindowVisible(window) || Native.IsIconic(window)) return null;
@@ -38,12 +43,23 @@ internal static class PreviewWindows
         if ((extended & 0x08000000) != 0 && (style & 0x40000) == 0) return null;
         var className = new StringBuilder(128); Native.GetClassName(window, className, className.Capacity);
         if (className.ToString() is "Progman" or "WorkerW" or "Shell_TrayWnd" or "Shell_SecondaryTrayWnd" or "tooltips_class32" or "#32768") return null;
-        if (!Native.GetWindowRect(window, out var outer) || !outer.Pixels.IsValid) return null;
+        if (!Native.GetWindowRect(window, out var outer))
+        {
+            if (verifyOccupancy) throw new InvalidOperationException("Free space could not be verified: an application frame could not be read.");
+            return null;
+        }
+        // A successfully read zero-area helper has no visible occupied frame.
+        if (!outer.Pixels.IsValid) return null;
         PixelRect bounds;
-        try { bounds = WindowService.VisibleBounds(window); } catch (InvalidOperationException) { return null; }
+        try { bounds = WindowService.VisibleBounds(window); } catch (InvalidOperationException) { if (verifyOccupancy) throw; return null; }
         if (!bounds.IsValid) return null;
         var title = new StringBuilder(512); Native.GetWindowText(window, title, title.Capacity);
         var target = new WindowTarget(window, process, title.Length == 0 ? "Untitled window" : title.ToString());
+        if (verifyOccupancy)
+        {
+            if (!WindowService.IsSameWindow(target)) throw new InvalidOperationException("Free space could not be verified: an application closed during capture.");
+            return new(target, bounds, null);
+        }
         _ = WindowService.Capture(window, out var reason);
         return new(target, bounds, reason, ReadShape(window, outer.Pixels));
     }

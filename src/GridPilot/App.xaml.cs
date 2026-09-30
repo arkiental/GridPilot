@@ -23,6 +23,9 @@ public partial class App : Application
     private GridPanel? panel;
     private SettingsWindow? settingsWindow;
     private AutoArrangeWindow? arrangeWindow;
+    private ReferenceRailWindow? referenceRail;
+    private ReferenceRailWindow Rail => referenceRail ??= new ReferenceRailWindow();
+    private ScenesWindow? scenesWindow;
     private WindowTarget? lastTarget;
     private readonly ExternalForegroundTracker externalForeground = new();
     private PanelPlacementController? placementController;
@@ -87,7 +90,7 @@ public partial class App : Application
     private void TogglePanel(bool fromTray)
     {
         Diagnostics.Write($"Open grid requested. Busy={windows.Busy}; settingsActive={settingsWindow?.IsActive}; panel={panel is not null}");
-        if (windows.Busy || arrangeWindow is not null) return;
+        if (windows.Busy || arrangeWindow is not null || scenesWindow is not null) return;
         if (settingsWindow is not null) { settingsWindow.Activate(); return; }
         if (panel is not null) { panel.Dismiss(true); return; }
         string? error = null;
@@ -109,14 +112,63 @@ public partial class App : Application
         next.PlacementRequested += (selected, region, device) => _ = PlaceAsync(selected, device, region, true);
         next.BatchPlacementRequested += (display, placements, originals) => _ = ApplyPanelBatchAsync(next, display, placements, originals, next.PendingPlacementRegion);
         next.EmptySlotRequested += (selected, device) => _ = FillEmptySlotAsync(selected, device);
+        next.FreeSpaceRequested += async (snapshot, frame, cancellation) =>
+        {
+            var result = await Placements.RunAsync(next, snapshot.Target, async () =>
+            {
+                void Verify(PixelRect bounds)
+                {
+                    if (cancellation.IsCancellationRequested) throw new InvalidOperationException("Free space placement was cancelled.");
+                    FreeSpacePlacement.VerifyOccupancy(snapshot, bounds, settings.Gap);
+                }
+                var placed = await windows.ArrangeAsync(snapshot.Monitor, [(snapshot.Target, frame)], snapshot.Originals,
+                    () => Verify(frame), () => Verify(WindowService.VisibleBounds(snapshot.Target.Handle)));
+                if (placed.Success && WindowService.IsSameWindow(snapshot.Target)) Native.SetForegroundWindow(snapshot.Target.Handle);
+                return placed.Success ? placed with { Message = "Placed in free space. Undo restores only the selected window." } : placed;
+            }, true);
+            UpdateTray();
+            return result;
+        };
         next.PresetRequested += (selected, preset, device) => _ = preset.Monitor == "current"
             ? PlaceAsync(selected, device, preset.Region) : ApplyPresetAsync(selected, preset);
         next.TargetChanged += selected => lastTarget = selected;
         next.SettingsRequested += ShowSettings;
         next.UndoRequested += () => _ = UndoAsync(next);
         next.AutoArrangeRequested += ShowAutoArrange;
+        next.ReferenceCropRequested += target => { next.Dismiss(false); Rail.Pin(target); };
+        next.ScenesRequested += ShowScenes;
         next.Show();
         Diagnostics.Write("Focus panel shown.");
+    }
+    private void ShowScenes()
+    {
+        if (windows.Busy) return;
+        if (scenesWindow is not null) { scenesWindow.Activate(); return; }
+        if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
+        if (settingsWindow is not null) { settingsWindow.Activate(); return; }
+        panel?.Dismiss(false);
+        var next = new ScenesWindow(settings, proposed =>
+        {
+            var updated = settings.Clone(); updated.Scenes = proposed.ToList(); return SaveSettings(updated);
+        }, async (displays, placements, originals) =>
+        {
+            if (displays.Count == 0) return new(false, "No display is available.");
+            foreach (var placement in placements)
+            {
+                var display = displays.FirstOrDefault(m => placement.Bounds.Left >= m.Work.Left && placement.Bounds.Top >= m.Work.Top && placement.Bounds.Right <= m.Work.Right && placement.Bounds.Bottom <= m.Work.Bottom);
+                if (display is null) return new(false, "The scene no longer fits the display. Refresh the preview.");
+                if (ScenePlacement.ValidatePreferences(settings, placement.Target, placement.Bounds, display) is { } conflict) return new(false, conflict);
+                var minimum = await WindowMinimums.ReadAsync(placement.Target, display);
+                if (minimum is not null && (placement.Bounds.Width < minimum.MinimumWidth || placement.Bounds.Height < minimum.MinimumHeight))
+                    return new(false, $"{placement.Target.Title} now requires at least {minimum.MinimumWidth} × {minimum.MinimumHeight} px. Refresh the preview.");
+            }
+            var result = await windows.ArrangeAsync(displays[0], placements, originals, sceneDisplays: displays, allowSceneOverlap: true);
+            UpdateTray(); return result;
+        }, UndoArrangementAsync);
+        scenesWindow = next;
+        hotkeys?.TryApply(Array.Empty<HotkeyAction>(), out _);
+        next.Closed += (_, _) => { scenesWindow = null; RestoreHotkeys(); };
+        next.Show();
     }
     private void ShowAutoArrange(DisplayMonitor monitor, IReadOnlyList<PreviewWindowEntry> capturedWindows)
     {
@@ -168,6 +220,7 @@ public partial class App : Application
     }
     private async Task FillEmptySlotAsync(WindowTarget target, string? selectedDevice = null)
     {
+        if (scenesWindow is not null) { scenesWindow.Activate(); return; }
         if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
         var owner = panel;
         var result = await Placements.RunAsync(owner, target, async () =>
@@ -205,6 +258,7 @@ public partial class App : Application
     private void ShowSettings(string? warning)
     {
         if (exiting) return;
+        if (scenesWindow is not null) { scenesWindow.Activate(); return; }
         if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
         panel?.Dismiss(false);
         if (settingsWindow is not null)
@@ -220,7 +274,7 @@ public partial class App : Application
     }
     private void RestoreHotkeys()
     {
-        if (exiting || paused || hotkeys is null || arrangeWindow is not null) return;
+        if (exiting || paused || hotkeys is null || arrangeWindow is not null || scenesWindow is not null) return;
         if (!hotkeys.TryApply(Actions(settings), out var error)) { paused = true; Notify(error!); UpdateTray(); }
     }
     private string? SaveSettings(AppSettings updated)
@@ -230,7 +284,7 @@ public partial class App : Application
         {
             // Save-only keeps the arrangement editor alive. Registration validation and
             // rollback may install shortcuts; suspend them again on every exit path.
-            if (arrangeWindow is not null) hotkeys?.TryApply(Array.Empty<HotkeyAction>(), out _);
+            if (arrangeWindow is not null || scenesWindow is not null) hotkeys?.TryApply(Array.Empty<HotkeyAction>(), out _);
         }
     }
     private string? SaveSettingsCore(AppSettings updated)
@@ -256,7 +310,7 @@ public partial class App : Application
     {
         panel?.Dismiss(true);
         if (!paused) { hotkeys!.TryApply(Array.Empty<HotkeyAction>(), out _); paused = manuallyPaused = true; }
-        else if (hotkeys!.TryApply(arrangeWindow is null ? Actions(settings) : Array.Empty<HotkeyAction>(), out var error)) paused = manuallyPaused = false;
+        else if (hotkeys!.TryApply(arrangeWindow is null && scenesWindow is null ? Actions(settings) : Array.Empty<HotkeyAction>(), out var error)) paused = manuallyPaused = false;
         else Notify(error!);
         UpdateTray();
     }
@@ -273,6 +327,8 @@ public partial class App : Application
         }));
         undoItem = new Forms.ToolStripMenuItem("Undo last placement", null, (_, _) => Dispatcher.BeginInvoke(() => _ = UndoAsync())); menu.Items.Add(undoItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("Show reference rail", null, (_, _) => Dispatcher.BeginInvoke(() => Rail.Show()));
+        menu.Items.Add("Workspace scenes…", null, (_, _) => Dispatcher.BeginInvoke(ShowScenes));
         menu.Items.Add("Settings…", null, (_, _) => Dispatcher.BeginInvoke(ShowSettings));
         pauseItem = new Forms.ToolStripMenuItem("Pause shortcuts", null, (_, _) => Dispatcher.BeginInvoke(TogglePause)); menu.Items.Add(pauseItem);
         startupItem = new Forms.ToolStripMenuItem("Launch at sign-in", null, (_, _) => Dispatcher.BeginInvoke(() =>
@@ -332,7 +388,8 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         exiting = true;
-        panel?.Dismiss(false); settingsWindow?.Close(); arrangeWindow?.Close();
+        referenceRail?.Shutdown();
+        panel?.Dismiss(false); settingsWindow?.Close(); arrangeWindow?.Close(); scenesWindow?.Close();
         if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook);
         hotkeys?.Dispose();
         if (tray is not null) { tray.Visible = false; tray.ContextMenuStrip?.Dispose(); tray.Dispose(); }
@@ -340,3 +397,4 @@ public partial class App : Application
         base.OnExit(e);
     }
 }
+

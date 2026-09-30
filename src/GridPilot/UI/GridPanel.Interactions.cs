@@ -34,8 +34,10 @@ public partial class GridPanel
         GridControl.SwapReleased += (x, y) =>
         {
             PreviewSwap(x, y);
-            if (pendingPlacements.Count == 2 && MonitorPicker.SelectedItem is DisplayMonitor monitor) SubmitPlan(monitor);
+            bool submit = pendingPlacements.Count == 2 && MonitorPicker.SelectedItem is DisplayMonitor;
             swapSource = null;
+            if (submit && MonitorPicker.SelectedItem is DisplayMonitor monitor) SubmitPlan(monitor);
+            else RebuildFocusDividers();
         };
         GridControl.SwapCycle += direction =>
         {
@@ -43,7 +45,7 @@ public partial class GridPanel
             swapIndex = swapIndex < 0 ? 0 : (swapIndex + direction + swapCandidates.Count) % swapCandidates.Count;
             PreviewSwap(swapX, swapY);
         };
-        GridControl.Interrupted += () => { pendingPlacements.Clear(); swapSource = null; GridControl.PlanFrames = []; GridControl.InvalidateVisual(); };
+        GridControl.Interrupted += () => { pendingPlacements.Clear(); swapSource = null; GridControl.PlanFrames = []; GridControl.InvalidateVisual(); RebuildFocusDividers(); };
     }
     private static bool Same(WindowTarget a, WindowTarget b) => a.Handle == b.Handle && a.ProcessId == b.ProcessId;
     private static string IdentityKey(WindowTarget t) => $"{t.Handle}:{t.ProcessId}";
@@ -80,6 +82,8 @@ public partial class GridPanel
     }
     private void StartSwap(int x, int y)
     {
+        FocusDividerCanvas.Visibility = Visibility.Hidden;
+        ClearFreeSpace();
         pendingPlacements.Clear(); swapSource = null; swapCandidates = []; swapIndex = -1; preview.Hide();
         if (placementPending || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
         PendingPlacementRegion = null;
@@ -123,11 +127,13 @@ public partial class GridPanel
     internal void BeginPlacement()
     {
         placementPending = true; GridControl.IsEnabled = false; preview.Hide();
+        FocusDividerCanvas.Visibility = Visibility.Hidden;
     }
     private void SubmitPlan(DisplayMonitor monitor)
     {
         if (pendingPlacements.Count == 0 || placementPending) return;
         placementPending = true; GridControl.IsEnabled = false; preview.Hide();
+        FocusDividerCanvas.Visibility = Visibility.Hidden;
         SelectionLabel.Text = "Applying the previewed placement…";
         if (BatchPlacementRequested is { } handler) handler(monitor, pendingPlacements.ToArray(), originalGeometry);
         else { placementPending = false; GridControl.IsEnabled = true; PlacementRequested?.Invoke(target, GridControl.Selection ?? Region.Full, monitor.Device); }
@@ -135,6 +141,7 @@ public partial class GridPanel
     internal void CompletePlacement(PlacementResult result, bool canUndo)
     {
         if (closing) return;
+        ClearFreeSpace();
         placementPending = false; GridControl.IsEnabled = true;
         cachedSelection = null; cachedPlan = null;
         pendingPlacements.Clear(); GridControl.Reset();
@@ -169,6 +176,7 @@ public partial class GridPanel
                 bool restorePanelFocus = ownedFocusBeforeHide && Native.GetForegroundWindow() == foregroundAfterHide;
                 bool activated = ShowActivated; ShowActivated = restorePanelFocus; Show(); ShowActivated = activated;
                 if (restorePanelFocus) { Activate(); GridControl.Focus(); }
+                RebuildFocusDividers();
             }
         }
     }
@@ -177,9 +185,12 @@ public partial class GridPanel
     {
         GridControl.TargetBounds = capturedWindows.FirstOrDefault(e => Same(e.Target, target))?.Bounds;
         GridControl.InvalidateVisual();
+        RebuildFocusDividers();
     }
     private void EmptySlotClick(object sender, RoutedEventArgs e)
     {
+        if (findingFreeSpace) return;
+        ClearFreeSpace();
         if (!placementPending && MonitorPicker.SelectedItem is DisplayMonitor monitor) { BeginPlacement(); EmptySlotRequested?.Invoke(target, monitor.Device); }
     }
     private void TitleDrag(object sender, MouseButtonEventArgs e)
