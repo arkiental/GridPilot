@@ -130,10 +130,24 @@ internal static partial class Program
             await Task.Delay(100);
             Assert(!panel.IsVisible, "closing persistent panel during deferred preview capture cannot reopen it");
             var focusPanel = new GridPilot.UI.GridPanel(entries[0].Target, new AppSettings(), true, (_, _) => null);
-            focusPanel.Show(); focusPanel.BeginPlacement();
-            Native.SetForegroundWindow(entries[1].Target.Handle); await Task.Delay(60);
+            focusPanel.Show();
+            // Finish initial Loaded/activation before modeling a user's focus switch.
+            await focusPanel.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+            var panelHandle = new System.Windows.Interop.WindowInteropHelper(focusPanel).Handle;
+            WaitForOwnedForeground(panelHandle, fixture);
+            focusPanel.BeginPlacement();
+            bool switched = Native.SetForegroundWindow(entries[1].Target.Handle);
+            if (!switched)
+            {
+                Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out uint foregroundProcess);
+                throw new InvalidOperationException($"NATIVE DESKTOP UNAVAILABLE: owned fixture activation was denied before refresh; foreground PID={foregroundProcess}.");
+            }
+            WaitForOwnedForeground(entries[1].Target.Handle, fixture);
             focusPanel.CompletePlacement(new(true), true); await Task.Delay(120);
-            Assert(Native.GetForegroundWindow() == entries[1].Target.Handle, "refresh does not steal focus switched away during native placement");
+            var foregroundAfterRefresh = Native.GetForegroundWindow();
+            Native.GetWindowThreadProcessId(foregroundAfterRefresh, out uint processAfterRefresh);
+            Assert(foregroundAfterRefresh == entries[1].Target.Handle,
+                $"refresh preserves verified fixture foreground; expected={entries[1].Target.Handle}, actual={foregroundAfterRefresh}, PID={processAfterRefresh}, panel={panelHandle}, switchAccepted={switched}");
             // Model a second display's refreshed catalog without moving a window onto user hardware.
             var synthetic = monitor with { Device = "fixture-display-b", Bounds = new(monitor.Bounds.Right, monitor.Bounds.Top, monitor.Bounds.Right + monitor.Bounds.Width, monitor.Bounds.Bottom), Work = new(monitor.Work.Right, monitor.Work.Top, monitor.Work.Right + monitor.Work.Width, monitor.Work.Bottom) };
             var currentEntry = entries[0] with { Bounds = new(synthetic.Work.Left + 20, synthetic.Work.Top + 20, synthetic.Work.Left + 800, synthetic.Work.Top + 600) };

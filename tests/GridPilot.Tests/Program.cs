@@ -56,7 +56,10 @@ internal static partial class Program
                 {
                     try
                     {
-                        if (args.Contains("--shortcuts")) await ShortcutEditorTests();
+                        if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
+                        else if (args.Contains("--draw")) await DrawPlacementNativeTests();
+                        else if (args.Contains("--integration")) await IntegrationNativeTests();
+                        else if (args.Contains("--shortcuts")) await ShortcutEditorTests();
                         else if (args.Contains("--elastic")) await ElasticFixtureTests();
                         else if (args.Contains("--minimums")) await WindowMinimumNativeTests();
                         else if (args.Contains("--panel-lifecycle")) await PanelPlacementControllerNativeTests();
@@ -67,13 +70,13 @@ internal static partial class Program
                         else if (args.Contains("--arrangement")) await ArrangementNativeTests();
                         else if (args.Contains("--reference-rail")) await ReferenceRailNativeTests();
                         else if (args.Contains("--sidebar")) await SidebarNativeTests();
-                        else { await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); }
+                        else { await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); await IntegrationNativeTests(); }
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
                 };
                 application.Run();
-                if (failure is not null) throw failure;
+                if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
             }
             Console.WriteLine($"PASS: {assertions} assertions."); return 0;
         }
@@ -82,6 +85,8 @@ internal static partial class Program
     private static void CoreTests()
     {
         ReferenceCropTests();
+        DrawPlacementTests();
+        IntegrationSettingsTests();
         WindowMinimumTests();
         ArrangementTests();
         PartialWorkspaceTests();
@@ -751,6 +756,7 @@ internal static partial class Program
             WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowActivated = false, Background = Brushes.White,
             Content = new TextBlock { Text = "GridPilot test window\n\nThis window is created only for placement verification.", Margin = new Thickness(30), FontSize = 22, TextWrapping = TextWrapping.Wrap }
         };
+        ConfigureDrawFixtureHandoff(window, args);
         if (args.Contains("--sixteen"))
         {
             window.Title = "Sidebar 01 · Green source"; window.Background = Brushes.LimeGreen;
@@ -811,12 +817,17 @@ internal static partial class Program
                 return 0;
             });
         };
-        if (pair) window.Loaded += (_, _) => new Window
+        if (pair) window.Loaded += (_, _) =>
         {
-            Title = "GridPilot second document test window", Width = 620, Height = 440, ShowActivated = false,
-            Left = window.Left + 70, Top = window.Top + 70, Background = Brushes.White,
-            Content = new TextBlock { Text = "Second document · overlap selection fixture", Margin = new Thickness(30), FontSize = 20 }
-        }.Show();
+            var second = new Window
+            {
+                Title = "GridPilot second document test window", Width = 620, Height = 440, ShowActivated = false,
+                Left = window.Left + 70, Top = window.Top + 70, Background = Brushes.White,
+                Content = new TextBlock { Text = "Second document · overlap selection fixture", Margin = new Thickness(30), FontSize = 20 }
+            };
+            ConfigureDrawFixtureHandoff(second, args, activate: false);
+            second.Show();
+        };
         app.Run(window);
     }
 }

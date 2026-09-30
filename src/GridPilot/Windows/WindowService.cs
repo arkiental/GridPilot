@@ -10,8 +10,11 @@ public sealed record PlacementResult(bool Success, string? Message = null, Place
 public sealed class WindowService
 {
     private readonly Func<IReadOnlyList<PreviewWindowEntry>> captureCatalog;
-    public WindowService() : this(PreviewWindows.Capture) { }
-    internal WindowService(Func<IReadOnlyList<PreviewWindowEntry>> captureCatalog) => this.captureCatalog = captureCatalog;
+    private readonly Func<IReadOnlyList<PreviewWindowEntry>> captureOccupancy;
+    public WindowService() : this(PreviewWindows.Capture, () => PreviewWindows.Capture(true)) { }
+    internal WindowService(Func<IReadOnlyList<PreviewWindowEntry>> captureCatalog) : this(captureCatalog, captureCatalog) { }
+    private WindowService(Func<IReadOnlyList<PreviewWindowEntry>> captureCatalog, Func<IReadOnlyList<PreviewWindowEntry>> captureOccupancy)
+    { this.captureCatalog = captureCatalog; this.captureOccupancy = captureOccupancy; }
     private sealed record Snapshot(WindowTarget Target, Native.WindowPlacement Placement, PixelRect Outer, PixelRect Visible, DisplayMonitor Monitor);
     private Snapshot? undo;
     private List<Snapshot>? batchUndo;
@@ -253,6 +256,27 @@ public sealed class WindowService
             return new(restored, restored ? null : "The previous placement could not be restored.");
         }
         finally { Busy = false; }
+    }
+
+    // Freehand placement optionally rejects overlap, never reflows neighbors,
+    // and applies the preview's exact frame through verified rollback.
+    internal async Task<PlacementResult> PlaceDrawnAsync(WindowTarget target, DisplayMonitor display, PixelRect bounds, bool avoidOverlap = false)
+    {
+        void VerifyFreeFrame(PixelRect frame)
+        {
+            if (frame.Left < display.Work.Left || frame.Top < display.Work.Top || frame.Right > display.Work.Right || frame.Bottom > display.Work.Bottom)
+                throw new InvalidOperationException("The actual window frame no longer fits this display's free space.");
+            if (captureOccupancy().Any(e => (e.Target.Handle != target.Handle || e.Target.ProcessId != target.ProcessId) &&
+                PlacementInteractions.Overlaps(frame, e.Bounds)))
+                throw new InvalidOperationException("Another window now occupies the drawn destination. Review the free space before drawing again.");
+        }
+        // Near-equal native bounds can still cross an obstacle edge. Validate
+        // both the request during settling and the actual final visible frame.
+        var result = await ArrangeAsync(display, [(target, bounds)],
+            verify: avoidOverlap ? () => VerifyFreeFrame(bounds) : null,
+            verifyResult: avoidOverlap ? () => VerifyFreeFrame(VisibleBounds(target.Handle)) : null);
+        if (result.Success && IsSameWindow(target)) Native.SetForegroundWindow(target.Handle);
+        return result.Success ? result with { Message = "Window placed. Undo is available from the tray." } : result;
     }
 
     internal async Task<PlacementResult> ArrangeAsync(DisplayMonitor expected, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements,
