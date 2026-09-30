@@ -70,7 +70,7 @@ internal static partial class Program
                         else if (args.Contains("--arrangement")) await ArrangementNativeTests();
                         else if (args.Contains("--reference-rail")) await ReferenceRailNativeTests();
                         else if (args.Contains("--sidebar")) await SidebarNativeTests();
-                        else { await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); await IntegrationNativeTests(); }
+                        else { await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); await IntegrationNativeTests(); }
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }

@@ -36,6 +36,14 @@ Drawing fixture startup now establishes real foreground ownership before a synth
 
 ## Remaining manual coverage
 
+The owner subsequently held an idle desktop window. The focused drawing run still could not acquire startup foreground: PID 12260 belonged to Brave, rather than the owned fixture or test process. This is a failed activation precondition, not evidence that the owner supplied new input. The full run passed Scenes, Rail, single-cell placement and minimum detection, then failed an older refresh-focus assertion. That assertion ignored the activation return and never observed its expected fixture foreground before refreshing, so the log does not establish that refresh stole focus. The test now waits for initial panel loading/foreground, checks the native switch result, and observes the exact fixture HWND before refreshing. Its final preservation assertion remains active and records actual HWND/PID. Production focus logic and drawing safety guards are unchanged. All owned test processes closed after the run.
+
+A normal user launch of the existing test executable from foreground PowerShell is the next setup attempt under [Windows foreground rules](https://learn.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-setforegroundwindow). Idle time alone does not grant foreground permission. The launch still must pass real ownership checks; it is not a guaranteed native pass. No available app tool exposes an isolated interactive Windows test session, and no alternate desktop, input injection or security-setting change is used.
+
+Call-graph review also found the default run invoking the interaction suite twice: once inside `NativeTests`, then again in the outer dispatcher. The outer duplicate is removed; the entire interaction suite remains included once. No feature coverage or assertion is skipped to shorten desktop validation.
+
+Both test corrections passed independent source review, a Release build with warnings as errors (zero warnings/errors), and all 6,175 core assertions. Corrected native cases remain pending a new coordinated desktop window.
+
 Owned WPF events and injected cursor callbacks do not establish physical pointer/keyboard behavior. Actual global shortcut key presses, Ctrl/Shift cursor ergonomics, mixed-DPI multi-monitor transitions/disconnects, 8K at 100%, high contrast/accessibility tooling, Remote Desktop/protected content and representative production applications remain manual checks. Geometry simulations and a single connected display do not certify those hardware configurations.
 
-Native fixtures move their own disposable windows only and inject no desktop input. No release, installation, replacement of a running app or deployment is part of this integration.
+Native fixtures move their own disposable windows only and inject no desktop input. The owner has authorized a downloadable portable release after final integration and validation. Installation, replacement of a running user app and deployment remain outside this task.
