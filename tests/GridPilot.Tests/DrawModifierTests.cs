@@ -74,7 +74,7 @@ internal static partial class Program
     private static async Task DrawModifierNativeTests()
     {
         Theme.Apply("Dark");
-        using var fixture = StartFixture("--pair");
+        using var fixture = StartDrawFixture("--pair");
         DrawPlacementSession? session = null;
         try
         {
@@ -93,7 +93,7 @@ internal static partial class Program
             var below = neighbor with { Bounds = new(x, gap.Bottom, gap.Right, monitor.Work.Bottom) };
             int warps = 0; (int X, int Y) lastWarp = default; bool allowWarp = true;
             session = new(target, [monitor], captureCatalog: () => [above, below], moveCursor: (px, py) => { warps++; lastWarp = (px, py); return allowWarp; });
-            session.Show(); await session.MinimumDetection;
+            await ShowOwnedDrawSession(session, fixture);
             var overlay = session.Overlays.Single(); overlay.SetAvoidOverlaps(true);
             overlay.Begin(x, y); overlay.Update(gap.Right, monitor.Work.Bottom);
             Assert(overlay.PlacementBounds == gap, "owned overlay constrains a pointer beyond the lower window to the gap");
@@ -115,12 +115,13 @@ internal static partial class Program
             PixelRect? committedFrame = null; bool? committedAvoid = null;
             session.PlacementRequested += (_, frame, avoid) => { committedFrame = frame; committedAvoid = avoid; committed = avoid && frame == gap; };
             string commitState = $"closed={session.IsClosed}, canApply={overlay.CanApply}, frame={overlay.PlacementBounds}, avoid={overlay.Drawing.AvoidOverlaps}, foreground={Native.GetForegroundWindow()}, overlay={new WindowInteropHelper(overlay).Handle}";
+            AssertOwnedDrawForeground(session);
             overlay.Apply(); Assert(committed && session.IsClosed, $"Ctrl restriction travels with committed frame after overlay closes: {commitState}; sent={committedFrame}, avoid={committedAvoid}");
             Assert(WindowService.VisibleBounds(hwnd).Near(original), "modifier preview never changes source window");
 
             session = new(target, [monitor], new DrawSnappingSettings { Toggle = new(4, 0x53) },
                 captureCatalog: () => [], moveCursor: (px, py) => { warps++; lastWarp = (px, py); return true; });
-            session.Show(); await session.MinimumDetection;
+            await ShowOwnedDrawSession(session, fixture);
             overlay = session.Overlays.Single(); overlay.Begin(x, y); overlay.Update(gap.Right, gap.Bottom);
             int beforeChord = warps;
             Assert(!overlay.HandleShift(true, false), "Shift snap modifier defers corner swap");

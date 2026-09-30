@@ -113,7 +113,7 @@ internal static partial class Program
     {
         await DrawModifierNativeTests();
         Theme.Apply("Dark");
-        using var fixture = StartFixture("--pair");
+        using var fixture = StartDrawFixture("--pair");
         DrawPlacementSession? session = null;
         try
         {
@@ -138,7 +138,7 @@ internal static partial class Program
 
             await Task.Delay(100);
             session = new(target, [monitor]);
-            session.Show(); await session.MinimumDetection; await Task.Delay(50);
+            await ShowOwnedDrawSession(session, fixture); await Task.Delay(50);
             var overlay = session.Overlays.Single();
             Assert(!session.IsClosed && overlay.IsVisible, "draw overlay stays open after activation");
             Assert(!overlay.AllowsTransparency && ((long)Native.GetWindowLongPtr(new WindowInteropHelper(overlay).Handle, -20) & 0x80000) == 0,
@@ -180,13 +180,14 @@ internal static partial class Program
             session.PlacementRequested += (display, bounds, avoidOverlap) => { committed = true; placement = service.PlaceDrawnAsync(target, display, bounds); };
             overlay.Begin(requested.Right, requested.Bottom); overlay.Update(requested.Left, requested.Top);
             string commitState = $"closed={session.IsClosed}, canApply={overlay.CanApply}, movement={overlay.Drawing.HasMovement}, frame={overlay.PlacementBounds}, foreground={Native.GetForegroundWindow()}, overlay={new WindowInteropHelper(overlay).Handle}";
+            AssertOwnedDrawForeground(session);
             overlay.Apply();
             Assert(committed && session.IsClosed, "release commits once and tears down all overlays: " + commitState);
             Assert(placement is not null && (await placement).Success && WindowService.VisibleBounds(hwnd).Near(requested), "overlay-to-native path keeps exact reverse-drag bounds");
             Assert((await service.UndoAsync()).Success, "overlay commit uses ordinary Undo");
 
             await Task.Delay(100); // Let the fixture finish processing restored focus before opening another overlay.
-            session = new(target, [monitor]); session.Show(); await session.MinimumDetection; await Task.Delay(50);
+            session = new(target, [monitor]); await ShowOwnedDrawSession(session, fixture); await Task.Delay(50);
             overlay = session.Overlays.Single();
             Assert(!session.IsClosed, "minimum gesture overlay remains active");
             var min = await WindowMinimums.ReadAsync(target, monitor);
@@ -195,6 +196,7 @@ internal static partial class Program
             Assert(minimumFrame.Width >= min!.MinimumWidth && minimumFrame.Height >= min.MinimumHeight &&
                 minimumFrame.Right == left + width && minimumFrame.Bottom == top + height, "tiny reverse drag previews minimum anchored at first click");
             placement = null; session.PlacementRequested += (display, bounds, avoidOverlap) => placement = service.PlaceDrawnAsync(target, display, bounds);
+            AssertOwnedDrawForeground(session);
             overlay.Apply();
             var minimumResult = placement is null ? null : await placement;
             Assert(minimumResult?.Success == true && WindowService.VisibleBounds(hwnd).Near(minimumFrame),
@@ -202,7 +204,7 @@ internal static partial class Program
             Assert((await service.UndoAsync()).Success, "auto-minimum placement preserves Undo");
 
             await Task.Delay(100);
-            session = new(target, [monitor]); session.Show(); await session.MinimumDetection; await Task.Delay(50);
+            session = new(target, [monitor]); await ShowOwnedDrawSession(session, fixture); await Task.Delay(50);
             overlay = session.Overlays.Single();
             overlay.Begin(left, top); overlay.ResetSelection();
             Assert(overlay.KeyboardPoint(monitor.Work.Right + 100, monitor.Work.Bottom + 100) == (left, top), "keyboard monitor switch keeps local crosshair when physical cursor is on another display");
@@ -212,16 +214,17 @@ internal static partial class Program
             if (overlay.Drawing.Contains(cursor.X, cursor.Y)) Assert(overlay.Drawing.Bounds == new PixelRect(cursor.X, cursor.Y, cursor.X, cursor.Y), "keyboard first corner samples current pointer without idle redraws");
             session.Cancel(false);
 
-            session = new(target, [monitor]); session.Show(); await session.MinimumDetection;
+            session = new(target, [monitor]); await ShowOwnedDrawSession(session, fixture);
             overlay = session.Overlays.Single(); overlay.Begin(left, top); overlay.Update(left + 400, top + 300);
             bool staleCommitted = false; session.PlacementRequested += (_, _, _) => staleCommitted = true;
             Native.SetForegroundWindow(hwnd); // Focus only our disposable fixture, without injecting input.
+            WaitForOwnedForeground(hwnd, fixture);
             overlay.Apply();
             Assert(!staleCommitted && session.IsClosed, "synchronous foreground guard cancels commit before deferred deactivation handler");
 
             await Task.Delay(100);
             var remembered = new DrawSnappingSettings { Enabled = true, Size = 48, Toggle = new(1, 0x47) };
-            session = new(target, [monitor], remembered); session.Show(); await session.MinimumDetection;
+            session = new(target, [monitor], remembered); await ShowOwnedDrawSession(session, fixture);
             overlay = session.Overlays.Single(); overlay.Begin(left, top); overlay.Update(left + 100, top + 100);
             Assert(overlay.Drawing.Bounds!.Value.Width == 96, "new drawing session restores remembered snap ON and size");
             Assert(overlay.HandleDrawingToggle(Key.G, ModifierKeys.Alt, false) && !session.Snapping.Enabled, "custom local modified key can turn snapping OFF");
@@ -236,7 +239,7 @@ internal static partial class Program
             }
             finally { File.Delete(Path.Combine(settingsDirectory, "settings.json")); Directory.Delete(settingsDirectory); }
 
-            session = new(target, [monitor]); session.Show(); await session.MinimumDetection;
+            session = new(target, [monitor]); await ShowOwnedDrawSession(session, fixture);
             overlay = session.Overlays.Single();
             overlay.Begin(left, top);
             static void KeyTo(DrawPlacementWindow window, Key key) => window.RaiseEvent(new KeyEventArgs(Keyboard.PrimaryDevice,
@@ -260,7 +263,7 @@ internal static partial class Program
         }
         finally { session?.Cancel(false); if (!fixture.HasExited) { fixture.Kill(); await fixture.WaitForExitAsync(); } }
 
-        using var constrained = StartFixture("--constrained");
+        using var constrained = StartDrawFixture("--constrained");
         DrawPlacementSession? minimumSession = null;
         try
         {
@@ -273,7 +276,7 @@ internal static partial class Program
             var result = await service.PlaceDrawnAsync(target, monitor, small);
             Assert(!result.Success && WindowService.VisibleBounds(hwnd).Near(original), "unreported app refusal rolls back instead of silently enlarging the rectangle");
             await Task.Delay(100);
-            minimumSession = new(target, [monitor], new() { Enabled = true }); minimumSession.Show(); await minimumSession.MinimumDetection;
+            minimumSession = new(target, [monitor], new() { Enabled = true }); await ShowOwnedDrawSession(minimumSession, constrained);
             var overlay = minimumSession.Overlays.Single();
             int x = monitor.Work.Left + Math.Min(monitor.Work.Width - 16, (int)(1300 * monitor.Dpi / 96d));
             int y = monitor.Work.Top + Math.Min(monitor.Work.Height - 16, (int)(850 * monitor.Dpi / 96d));

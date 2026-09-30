@@ -756,6 +756,7 @@ internal static partial class Program
             WindowStartupLocation = WindowStartupLocation.CenterScreen, ShowActivated = false, Background = Brushes.White,
             Content = new TextBlock { Text = "GridPilot test window\n\nThis window is created only for placement verification.", Margin = new Thickness(30), FontSize = 22, TextWrapping = TextWrapping.Wrap }
         };
+        ConfigureDrawFixtureHandoff(window, args);
         if (args.Contains("--sixteen"))
         {
             window.Title = "Sidebar 01 · Green source"; window.Background = Brushes.LimeGreen;
@@ -816,12 +817,17 @@ internal static partial class Program
                 return 0;
             });
         };
-        if (pair) window.Loaded += (_, _) => new Window
+        if (pair) window.Loaded += (_, _) =>
         {
-            Title = "GridPilot second document test window", Width = 620, Height = 440, ShowActivated = false,
-            Left = window.Left + 70, Top = window.Top + 70, Background = Brushes.White,
-            Content = new TextBlock { Text = "Second document · overlap selection fixture", Margin = new Thickness(30), FontSize = 20 }
-        }.Show();
+            var second = new Window
+            {
+                Title = "GridPilot second document test window", Width = 620, Height = 440, ShowActivated = false,
+                Left = window.Left + 70, Top = window.Top + 70, Background = Brushes.White,
+                Content = new TextBlock { Text = "Second document · overlap selection fixture", Margin = new Thickness(30), FontSize = 20 }
+            };
+            ConfigureDrawFixtureHandoff(second, args, activate: false);
+            second.Show();
+        };
         app.Run(window);
     }
 }
