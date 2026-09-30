@@ -1,13 +1,18 @@
 # Try the combined workspace build
 
-PR #31 consolidates all six feature/workflow PRs (#23, #25, #28, #29, #31 and #33) into one version: live Auto Arrange, native placement recovery, partial workspaces, Shift-drag splits, visual shortcuts and parallel issue coordination.
+This version combines PR #31's existing workspace features with PR #35's Scenes, Elastic dividers, Reference Rail and Fit into free space, plus PR #50's desktop Draw placement. See the [feature coverage and validation limits](INTEGRATION_2026-09-30.md).
 
-1. Open **Actions → Build and core tests** and select a successful run for the PR #31 consolidation merge on `main`, or a later `main` commit. While consolidation is under review, use the latest PR #31 commit instead. Wait for that commit's run to succeed; an older successful run can contain the baseline only. Download **GridPilot-win-x64** under Artifacts. You must be signed into the private repository. The older preview release does not contain this consolidated feature set.
+1. Open **Actions → Build and core tests** and select a successful `main` run after both PR #35 and PR #50 have merged, or the latest validated PR #50 integration run. Check the commit, since an older successful run can contain only some features. Download **GridPilot-win-x64** under Artifacts. You must be signed into the private repository. The older preview release does not contain this combined feature set.
 2. Extract the complete ZIP. Quit the older GridPilot from its tray menu before starting the new `GridPilot.exe`; GridPilot permits only one instance, so otherwise an older running copy may answer the shortcut.
 3. Existing settings are loaded automatically. Keep the entire extracted folder together. Nothing in these PRs automatically installs or replaces your running app.
 
 ## What to try
 
+- **Draw placement:** activate an app and use the configured drawing shortcut or tray action. Draw in any direction; hold Ctrl for free space, use Shift to switch the editable corner, and toggle local snapping with its configured key. Existing settings retain their shortcuts; configure Draw placement in General if it is unassigned. Escape/right-click cancels and successful placement retains Undo.
+- **Scenes:** save a named arrangement, explicitly map each saved place to an open window/display, preview, and restore. Undo restores the group; missing apps are never launched or guessed.
+- **Elastic dividers:** supported shared boundaries appear automatically in Focus and Auto Arrange. Adjust with pointer, arrows or exact pixels. Focus commits through Apply divider/release/Enter; Auto Arrange retains a proposal until Accept layout.
+- **Reference Rail:** pin a live crop from a sidebar card, edit its crop numerically or by drawing, and hide/reopen the independent rail. Its up to four source bindings last only for the current session.
+- **Fit into free space:** choose the action, review/cycle the discovered destination, then Apply. Only the selected window moves; stale occupancy requires another review.
 - **Auto arrange:** actual app previews appear in the layout and window sidebar. Select a window for controls below the preview. Try 16:9, 2:1 or 1:1, or open Advanced app rules. Saved places and local subgrids remain available.
 - **Reroll:** inspect alternative feasible layouts. Reroll and dragging one proposed window onto another change only the proposal. **Accept layout** moves the windows; **Undo** restores the group. Fixed places, minimums and ratio locks can prevent a proposed swap.
 - **Shift-drag split:** drag an included app onto another proposed frame while holding Shift, then choose its left, top, right or bottom half. The target occupies the other half and the source's previous area becomes vacant. Review the proposal before Accept; minimums, ratios and saved places remain enforced.
@@ -20,4 +25,4 @@ PR #31 consolidates all six feature/workflow PRs (#23, #25, #28, #29, #31 and #3
 
 The large preview uses actual current window content. It does not predict how a third-party app will redraw its content after resizing. Main-grid desktop snapshots refresh briefly after placement; sidebar/arrangement thumbnails use the compositor. Native app constraints remain authoritative, and a genuine refusal is explained and rolled back.
 
-Desktop fixture validation uses disposable test windows only. The development display is 7680 × 4320 at 200%; 100% geometry is covered by tests, but actual 8K100% ergonomics and mixed-monitor hardware still need a manual check. See VALIDATION.md for exact results and review evidence.
+Desktop fixture validation uses disposable test windows only. The 30 September integration uses one 1920 × 1080 display at 100%; earlier milestones used other configurations. Actual physical gestures, 8K100% ergonomics, mixed-monitor hardware and production apps still need manual checks. See VALIDATION.md for exact results and review evidence.

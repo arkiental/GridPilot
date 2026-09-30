@@ -1,6 +1,6 @@
 # GridPilot
 
-**Consolidated build:** includes Auto Arrange, Shift-drag splits, native placement recovery, partial workspaces and visual shortcuts. See [download and testing steps](docs/TRY_THIS_BUILD.md), [main-grid reflow and swaps](docs/PLACEMENT_INTERACTIONS.md), [partial workspaces](docs/PARTIAL_WORKSPACE.md), and [visual shortcuts](docs/SHORTCUTS.md).
+**Consolidated build:** includes Auto Arrange, Shift-drag splits, native placement recovery, partial workspaces, visual shortcuts, Workspace Scenes, Elastic dividers, Reference Rail, Fit into free space and desktop Draw placement. See [download and testing steps](docs/TRY_THIS_BUILD.md), the [integration coverage matrix](docs/INTEGRATION_2026-09-30.md), [main-grid reflow and swaps](docs/PLACEMENT_INTERACTIONS.md), [partial workspaces](docs/PARTIAL_WORKSPACE.md), and [visual shortcuts](docs/SHORTCUTS.md).
 
 **Auto arrange:** preview a Smart layout with a larger main workspace and smaller supporting apps, or choose Equal tiles. Live window previews fill the plan and two-column sidebar; select an app to edit its rules below the plan. Reroll feasible proposals, swap proposed frames, or draw saved app places and local subgrids. Accept explicitly, then keep arranging or Undo from the sheet. See [usage and constraints](docs/AUTO_ARRANGE.md).
 

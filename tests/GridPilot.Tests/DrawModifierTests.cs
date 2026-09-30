@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using GridPilot.Core;
@@ -111,8 +112,10 @@ internal static partial class Program
             using (var stream = File.Create(screenshot)) png.Save(stream);
             Console.WriteLine("Draw modifiers screenshot: " + screenshot);
             bool committed = false;
-            session.PlacementRequested += (_, frame, avoid) => committed = avoid && frame == gap;
-            overlay.Apply(); Assert(committed && session.IsClosed, "Ctrl restriction travels with committed frame after overlay closes");
+            PixelRect? committedFrame = null; bool? committedAvoid = null;
+            session.PlacementRequested += (_, frame, avoid) => { committedFrame = frame; committedAvoid = avoid; committed = avoid && frame == gap; };
+            string commitState = $"closed={session.IsClosed}, canApply={overlay.CanApply}, frame={overlay.PlacementBounds}, avoid={overlay.Drawing.AvoidOverlaps}, foreground={Native.GetForegroundWindow()}, overlay={new WindowInteropHelper(overlay).Handle}";
+            overlay.Apply(); Assert(committed && session.IsClosed, $"Ctrl restriction travels with committed frame after overlay closes: {commitState}; sent={committedFrame}, avoid={committedAvoid}");
             Assert(WindowService.VisibleBounds(hwnd).Near(original), "modifier preview never changes source window");
 
             session = new(target, [monitor], new DrawSnappingSettings { Toggle = new(4, 0x53) },

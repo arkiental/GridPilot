@@ -178,8 +178,10 @@ internal static partial class Program
             bool committed = false;
             Task<PlacementResult>? placement = null;
             session.PlacementRequested += (display, bounds, avoidOverlap) => { committed = true; placement = service.PlaceDrawnAsync(target, display, bounds); };
-            overlay.Begin(requested.Right, requested.Bottom); overlay.Update(requested.Left, requested.Top); overlay.Apply();
-            Assert(committed && session.IsClosed, "release commits once and tears down all overlays");
+            overlay.Begin(requested.Right, requested.Bottom); overlay.Update(requested.Left, requested.Top);
+            string commitState = $"closed={session.IsClosed}, canApply={overlay.CanApply}, movement={overlay.Drawing.HasMovement}, frame={overlay.PlacementBounds}, foreground={Native.GetForegroundWindow()}, overlay={new WindowInteropHelper(overlay).Handle}";
+            overlay.Apply();
+            Assert(committed && session.IsClosed, "release commits once and tears down all overlays: " + commitState);
             Assert(placement is not null && (await placement).Success && WindowService.VisibleBounds(hwnd).Near(requested), "overlay-to-native path keeps exact reverse-drag bounds");
             Assert((await service.UndoAsync()).Success, "overlay commit uses ordinary Undo");
 
