@@ -25,7 +25,7 @@ internal sealed class DrawPlacementSession
     {
         Target = target;
         this.moveCursor = moveCursor ?? Native.SetCursorPos;
-        Obstacles = (captureCatalog?.Invoke() ?? PreviewWindows.Capture())
+        Obstacles = (captureCatalog?.Invoke() ?? PreviewWindows.Capture(true))
             .Where(e => e.Target.Handle != target.Handle || e.Target.ProcessId != target.ProcessId).Select(e => e.Bounds).ToArray();
         Snapping = new() { Enabled = snapping?.Enabled ?? false, Size = snapping?.Size ?? 32, Toggle = snapping is null ? new(0, 0x53) : snapping.Toggle };
         var original = WindowService.VisibleBounds(target.Handle);

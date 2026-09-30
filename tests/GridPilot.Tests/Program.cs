@@ -58,6 +58,7 @@ internal static partial class Program
                     {
                         if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
                         else if (args.Contains("--draw")) await DrawPlacementNativeTests();
+                        else if (args.Contains("--integration")) await IntegrationNativeTests();
                         else if (args.Contains("--shortcuts")) await ShortcutEditorTests();
                         else if (args.Contains("--elastic")) await ElasticFixtureTests();
                         else if (args.Contains("--minimums")) await WindowMinimumNativeTests();
@@ -69,13 +70,13 @@ internal static partial class Program
                         else if (args.Contains("--arrangement")) await ArrangementNativeTests();
                         else if (args.Contains("--reference-rail")) await ReferenceRailNativeTests();
                         else if (args.Contains("--sidebar")) await SidebarNativeTests();
-                        else { await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); }
+                        else { await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PlacementInteractionNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); await IntegrationNativeTests(); }
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
                 };
                 application.Run();
-                if (failure is not null) throw failure;
+                if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
             }
             Console.WriteLine($"PASS: {assertions} assertions."); return 0;
         }
@@ -85,6 +86,7 @@ internal static partial class Program
     {
         ReferenceCropTests();
         DrawPlacementTests();
+        IntegrationSettingsTests();
         WindowMinimumTests();
         ArrangementTests();
         PartialWorkspaceTests();
