@@ -59,6 +59,7 @@ internal static class Native
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool EnumDisplayMonitors(nint dc, nint clip, MonitorCallback callback, nint data);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool GetMonitorInfo(nint monitor, ref MonitorInfo info);
     [DllImport("user32.dll")] internal static extern uint GetDpiForWindow(nint window);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool AdjustWindowRectExForDpi(ref Rect rect, uint style, bool menu, uint exStyle, uint dpi);
     [DllImport("user32.dll")] internal static extern int GetSystemMetricsForDpi(int index, uint dpi);
     [DllImport("user32.dll", EntryPoint = "SendMessageTimeoutW", SetLastError = true)]
     internal static extern nint SendMinMaxMessage(nint window, uint message, nuint wParam, ref MinMaxInfo info, uint flags, uint timeout, out nuint result);

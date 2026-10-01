@@ -15,11 +15,12 @@ internal sealed class RecursiveGridSession
     internal RecursiveGridWindow Overlay { get; }
     internal bool IsClosed { get; private set; }
     internal bool IsCommitting { get; private set; }
+    internal Shortcut? DivideAllShortcut { get; }
     internal event Action? Closed;
 
-    internal RecursiveGridSession(RecursiveGridPreflight preflight, int maxDepth, Func<PixelRect, Task<PlacementResult>> place)
+    internal RecursiveGridSession(RecursiveGridPreflight preflight, int maxDepth, Func<PixelRect, Task<PlacementResult>> place, Shortcut? divideAllShortcut = null)
     {
-        Preflight = preflight; this.place = place;
+        Preflight = preflight; this.place = place; DivideAllShortcut = divideAllShortcut;
         Overlay = new(this, maxDepth);
         targetWatch.Tick += (_, _) =>
         {
@@ -42,15 +43,17 @@ internal sealed class RecursiveGridSession
         if (!IsClosed && !IsCommitting && Native.GetForegroundWindow() != new WindowInteropHelper(Overlay).Handle) Cancel(false);
     });
 
-    internal async Task CommitAsync(RecursiveGridCell cell)
+    internal Task CommitAsync(RecursiveGridCell cell) => Overlay.Model.CanSelect(cell) ? CommitBoundsAsync(cell.Bounds) : Task.CompletedTask;
+
+    internal async Task CommitBoundsAsync(PixelRect bounds)
     {
-        if (IsClosed || IsCommitting || !Overlay.Model.CanSelect(cell)) return;
+        if (IsClosed || IsCommitting || !Overlay.Model.CanSelect(bounds)) return;
         if (!WindowService.IsSameWindow(Target) || Native.GetForegroundWindow() != new WindowInteropHelper(Overlay).Handle)
         { Cancel(false); return; }
         IsCommitting = true; Overlay.SetBusy(true);
         try
         {
-            var result = await place(cell.Bounds);
+            var result = await place(bounds);
             if (IsClosed) return;
             if (result.Success) { IsCommitting = false; Cancel(true); }
             else if (!invalidated)

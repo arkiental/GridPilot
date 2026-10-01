@@ -37,6 +37,7 @@ public sealed class AppSettings
     public Shortcut? DrawPlacement { get; set; } = new(3, 0x44);
     public Shortcut? RecursiveGridPlacement { get; set; } = new(3, 0x47);
     public int RecursiveGridMaxDepth { get; set; } = 4;
+    public Shortcut? RecursiveGridDivideAll { get; set; } = new(0, 0x41);
     private DrawSnappingSettings drawSnapping = new();
     public DrawSnappingSettings DrawSnapping { get => drawSnapping; set => drawSnapping = value ?? new(); }
     public Shortcut? Undo { get; set; }
@@ -91,6 +92,8 @@ public sealed class AppSettings
         if (DrawPlacement?.Validate() is { } drawError) return drawError;
         if (RecursiveGridPlacement?.Validate() is { } recursiveError) return recursiveError;
         if (RecursiveGridMaxDepth is < 1 or > 8) return "Recursive grid depth must be between 1 and 8.";
+        if (DrawSnappingSettings.ValidateShortcut(RecursiveGridDivideAll) is not null) return "Choose a divide-all shortcut other than the picker's navigation, placement or cancel keys.";
+        if (RecursiveGridDivideAll is not null && (RecursiveGridDivideAll == RecursiveGridPlacement || RecursiveGridDivideAll == Activation)) return "Divide all must differ from the shortcuts that open or cancel the picker.";
         if (DrawSnapping.Validate() is { } snapError) return snapError;
         if (DrawPlacement is not null && DrawSnapping.Toggle == DrawPlacement) return "The drawing snap toggle must differ from the Draw placement shortcut.";
         if (PartialWorkspace.Validate() is { } workspaceError) return workspaceError;
