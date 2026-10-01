@@ -26,7 +26,8 @@ public sealed class AppSettings
     // Missing fields in older settings stay unassigned, avoiding collisions with
     // a user's existing Ctrl+Alt+D binding. New installations get the default.
     [System.Text.Json.Serialization.JsonConstructor]
-    public AppSettings(Shortcut? drawPlacement) => DrawPlacement = drawPlacement;
+    public AppSettings(Shortcut? drawPlacement, Shortcut? recursiveGridPlacement)
+    { DrawPlacement = drawPlacement; RecursiveGridPlacement = recursiveGridPlacement; }
     public int Version { get; set; } = 1;
     public List<WorkspaceScene> Scenes { get; set; } = [];
     public int Columns { get; set; } = 6;
@@ -34,6 +35,8 @@ public sealed class AppSettings
     public double Gap { get; set; } = 8;
     public Shortcut Activation { get; set; } = new(6, 0x20);
     public Shortcut? DrawPlacement { get; set; } = new(3, 0x44);
+    public Shortcut? RecursiveGridPlacement { get; set; } = new(3, 0x47);
+    public int RecursiveGridMaxDepth { get; set; } = 4;
     private DrawSnappingSettings drawSnapping = new();
     public DrawSnappingSettings DrawSnapping { get => drawSnapping; set => drawSnapping = value ?? new(); }
     public Shortcut? Undo { get; set; }
@@ -86,6 +89,8 @@ public sealed class AppSettings
         if (Activation.Validate() is { } error) return error;
         if (Undo?.Validate() is { } undoError) return undoError;
         if (DrawPlacement?.Validate() is { } drawError) return drawError;
+        if (RecursiveGridPlacement?.Validate() is { } recursiveError) return recursiveError;
+        if (RecursiveGridMaxDepth is < 1 or > 8) return "Recursive grid depth must be between 1 and 8.";
         if (DrawSnapping.Validate() is { } snapError) return snapError;
         if (DrawPlacement is not null && DrawSnapping.Toggle == DrawPlacement) return "The drawing snap toggle must differ from the Draw placement shortcut.";
         if (PartialWorkspace.Validate() is { } workspaceError) return workspaceError;
@@ -93,6 +98,7 @@ public sealed class AppSettings
         var shortcuts = new HashSet<Shortcut> { Activation };
         if (Undo is not null && !shortcuts.Add(Undo)) return "Undo and activation need different shortcuts.";
         if (DrawPlacement is not null && !shortcuts.Add(DrawPlacement)) return "Draw placement needs a different shortcut from activation and Undo.";
+        if (RecursiveGridPlacement is not null && !shortcuts.Add(RecursiveGridPlacement)) return "Recursive grid needs a different shortcut from other GridPilot actions.";
         if (PartialWorkspace.Shortcut is { } fillShortcut && !shortcuts.Add(fillShortcut)) return "Fill empty slot needs a different shortcut from activation and Undo.";
         var ids = new HashSet<string>();
         foreach (var preset in Presets)

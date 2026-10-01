@@ -1,6 +1,18 @@
 # Validation
 
-## Always-on dividers in Focus and Auto Arrange (issues #36–#38)
+## Recursive grid, 1 October (issue #51)
+
+The Release solution build passed with warnings as errors (zero warnings/errors). Core checks passed **8,237 assertions**, including **2,054** recursive rectangle/depth/minimum assertions. The focused owned native minimum suite `--recursive-grid-native` passed **8,269 assertions**; the final owned WPF suite `--recursive-grid --owned-fixture-input` passed **8,296 assertions** on one **1920 x 1080 display at 100%**, with a **1920 x 1032** work area.
+
+Core coverage includes negative origins, odd dimensions and exclusive edges, local recursive splits, stale leaves, depth limits, every child's minimum, final-selection minimums and global subdivision undo. Actual owned Windows fixtures cover bounded minimum-query timeout and conservative fallback, DPI-unaware tracking values, frame conversion, fixed/minimized/stale refusal, maximized restore/Undo, exact native placement, unchanged neighbors and an application that refuses movement with verified recovery.
+
+The final WPF checks cover initial physical work-area bounds, hover feedback, nested and independent branch splits, middle-button consumption/undo, Escape without movement and exact target focus restoration, rapid repeated commit/depth refusals, cancellation and direct window closure during a pending transaction, deferred display invalidation, width-only and height-only learned minimums, settings persistence, hotkey registration/conflict/release and existing Draw preview/cancel behavior. Independent core, native and integration reviews found no remaining blocker. The inspected images in [RECURSIVE_GRID.md](RECURSIVE_GRID.md) render the running owned production overlay; they contain no underlying user-window pixels.
+
+The default complete native command was attempted but stopped during owned-window activation when Windows refused the background process's foreground request; it did **not** pass or reach the remaining historical suites. The final affected suite uses an owned fixture's foreground handoff, an exact-HWND wait before yielding and a safe owned-only activation retry. Its explicitly enabled mouse fallback checks the live HWND/PID and client hit point, refuses active mouse gestures and restores the cursor/topmost state; the successful final run needed no injected click. Production foreground/cancellation guards remain enabled. This is not a waiver of the new feature checks.
+
+Mixed-DPI/multi-monitor hardware transitions, actual global shortcut key presses and pointer-driven grid gestures, assistive technology/high contrast, elevated/protected/RDP applications and representative production application size rules remain manual checks. Test fixtures exercise real native placement and WPF handler routes; they do not establish that all applications enforce Win32 tracking minima identically. Unreported/dynamic limits can still refuse exact placement and use recovery; conservative estimates can block otherwise feasible cells.
+
+## Always-on dividers in Focus and Auto Arrange (issues #36-#38)
 
 The Auto Arrange divider toggle was removed. Release build with warnings as errors passed, the core suite passed **5,355 assertions**, and the complete owned native/WPF suite passed **5,918 assertions** on one **1920 × 1080 display at 100%**. A first full-suite run failed an existing desktop compositor pixel assertion; two successive complete reruns passed. The focused `--elastic` suite passed **5,375 assertions** after independent review fixes.
 

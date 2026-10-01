@@ -1,0 +1,54 @@
+name: Publish Windows preview release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify release commit is current main
+        shell: pwsh
+        run: |
+          $tag = git rev-parse HEAD
+          $main = git rev-parse refs/remotes/origin/main
+          if ($LASTEXITCODE -ne 0 -or $tag -ne $main) { throw 'Release tag must point at current main.' }
+      - uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1
+        with:
+          dotnet-version: '10.0.x'
+      - name: Build and core checks
+        shell: pwsh
+        run: |
+          dotnet build GridPilot.sln -c Release -warnaserror
+          if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
+          dotnet run --project tests/GridPilot.Tests -c Release --no-build -- --core
+          if ($LASTEXITCODE -ne 0) { throw 'Release core checks failed.' }
+      - name: Package portable build and checksum
+        shell: pwsh
+        run: |
+          ./scripts/Publish.ps1
+          $hash = (Get-FileHash artifacts/GridPilot-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          Set-Content -LiteralPath artifacts/SHA256SUMS.txt -Value "$hash  GridPilot-win-x64.zip" -Encoding ascii
+          Write-Output "Release SHA256: $hash"
+      - name: Publish release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = "docs/releases/$env:GITHUB_REF_NAME.md"
+          if (!(Test-Path -LiteralPath $notes)) { throw 'Release notes are missing.' }
+          $arguments = @('release', 'create', $env:GITHUB_REF_NAME, 'artifacts/GridPilot-win-x64.zip', 'artifacts/SHA256SUMS.txt', '--repo', $env:GITHUB_REPOSITORY, '--verify-tag', '--title', "GridPilot $env:GITHUB_REF_NAME", '--notes-file', $notes)
+          if ($env:GITHUB_REF_NAME -match '-preview') { $arguments += '--prerelease' }
+          gh @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

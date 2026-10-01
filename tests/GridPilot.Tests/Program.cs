@@ -57,6 +57,8 @@ internal static partial class Program
                     try
                     {
                         if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
+                        else if (args.Contains("--recursive-grid")) await RecursiveGridNativeTests();
+                        else if (args.Contains("--recursive-grid-native")) await RecursiveGridMinimumNativeTests();
                         else if (args.Contains("--draw")) await DrawPlacementNativeTests();
                         else if (args.Contains("--integration")) await IntegrationNativeTests();
                         else if (args.Contains("--shortcuts")) await ShortcutEditorTests();
@@ -70,7 +72,7 @@ internal static partial class Program
                         else if (args.Contains("--arrangement")) await ArrangementNativeTests();
                         else if (args.Contains("--reference-rail")) await ReferenceRailNativeTests();
                         else if (args.Contains("--sidebar")) await SidebarNativeTests();
-                        else { await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); await IntegrationNativeTests(); }
+                        else { await RecursiveGridNativeTests(); await RecursiveGridMinimumNativeTests(); await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); await IntegrationNativeTests(); }
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
@@ -84,6 +86,8 @@ internal static partial class Program
     }
     private static void CoreTests()
     {
+        RecursiveGridTests();
+        RecursiveGridMinimumPolicyTests();
         ReferenceCropTests();
         DrawPlacementTests();
         IntegrationSettingsTests();

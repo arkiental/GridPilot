@@ -14,7 +14,8 @@ public sealed class SettingsWindow : Window
     private AppSettings draft;
     private readonly Func<AppSettings, string?> save;
     private readonly TextBox columns = new(), rows = new(), gap = new(), name = new();
-    private readonly ShortcutBox activation = new(), drawPlacement = new(), undo = new(), presetShortcut = new();
+    private readonly ShortcutBox activation = new(), drawPlacement = new(), recursiveGridPlacement = new(), undo = new(), presetShortcut = new();
+    private readonly TextBox recursiveGridDepth = new();
     private readonly ShortcutBox snapShortcut = new() { DrawingOnly = true, ToolTip = "Press a key, optionally with Ctrl, Alt or Shift. Used only during an active drawing gesture." };
     private readonly TextBox snapSize = new();
     private readonly CheckBox snapEnabled = new() { Content = "Snap while drawing (remembers on/off)", Margin = new Thickness(0, 4, 0, 10) };
@@ -115,6 +116,8 @@ public sealed class SettingsWindow : Window
         stack.Children.Add(grid);
         stack.Children.Add(Text("Shortcuts", 19, "TextBrush", FontWeights.SemiBold));
         stack.Children.Add(Field("Open the grid", activation, "Click the field and press your shortcut. Ctrl or Alt is required."));
+        stack.Children.Add(Field("Recursive grid · optional", recursiveGridPlacement, "Suggested: Ctrl + Alt + G. Left-click places, right-click divides, middle-click undoes a division, Esc cancels. Backspace clears it."));
+        stack.Children.Add(Field("Recursive grid maximum depth", recursiveGridDepth, "1–8. Default 4; the initial 2×2 is depth 1. App minimum size can stop division sooner."));
         stack.Children.Add(Field("Draw placement · optional", drawPlacement, "Draw the active window’s exact bounds on the desktop. Suggested: Ctrl + Alt + D. Backspace clears it."));
         stack.Children.Add(snapEnabled);
         var snapFields = new UniformGrid { Columns = 2 };
@@ -260,6 +263,7 @@ public sealed class SettingsWindow : Window
     {
         columns.Text = draft.Columns.ToString(CultureInfo.InvariantCulture); rows.Text = draft.Rows.ToString(CultureInfo.InvariantCulture);
         gap.Text = draft.Gap.ToString(CultureInfo.CurrentCulture); activation.Set(draft.Activation); undo.Set(draft.Undo); drawPlacement.Set(draft.DrawPlacement);
+        recursiveGridPlacement.Set(draft.RecursiveGridPlacement); recursiveGridDepth.Text = draft.RecursiveGridMaxDepth.ToString(CultureInfo.InvariantCulture);
         snapShortcut.Set(draft.DrawSnapping.Toggle); snapSize.Text = draft.DrawSnapping.Size.ToString(CultureInfo.InvariantCulture); snapEnabled.IsChecked = draft.DrawSnapping.Enabled;
         smokedGlass.IsChecked = draft.SmokedGlass; theme.SelectedItem = draft.Theme; startAtLogin.IsChecked = draft.StartAtLogin;
         closeAfterPlacement.IsChecked = draft.CloseAfterPlacement;
@@ -300,7 +304,8 @@ public sealed class SettingsWindow : Window
     private void SaveClick(object sender, RoutedEventArgs e)
     {
         if (captureErrors.FirstOrDefault() is { Key: not null } invalid) { error.Text = $"{invalid.Key.Name}: {invalid.Value}"; return; }
-        if ((activation.CaptureError ?? drawPlacement.CaptureError ?? snapShortcut.CaptureError ?? undo.CaptureError ?? presetShortcut.CaptureError ?? fillShortcut.CaptureError) is { } captureError) { error.Text = captureError; return; }
+        if ((activation.CaptureError ?? drawPlacement.CaptureError ?? recursiveGridPlacement.CaptureError ?? snapShortcut.CaptureError ?? undo.CaptureError ?? presetShortcut.CaptureError ?? fillShortcut.CaptureError) is { } captureError) { error.Text = captureError; return; }
+        if (!int.TryParse(recursiveGridDepth.Text, out int depth)) { error.Text = "Enter a whole number for recursive grid depth."; return; }
         if (!int.TryParse(snapSize.Text, out int snapPixels)) { error.Text = "Enter a whole number for drawing snap size."; return; }
         if (!int.TryParse(columns.Text, out int c) || !int.TryParse(rows.Text, out int r)) { error.Text = "Enter whole numbers for rows and columns."; return; }
         if (!double.TryParse(gap.Text, NumberStyles.Float, CultureInfo.CurrentCulture, out double g)) { error.Text = "Enter a number for the gap."; return; }
@@ -311,6 +316,7 @@ public sealed class SettingsWindow : Window
         draft.CloseAfterPlacement = closeAfterPlacement.IsChecked == true;
         draft.Columns = c; draft.Rows = r; draft.Gap = g; draft.Activation = activation.Value; draft.Undo = undo.Value;
         draft.DrawPlacement = drawPlacement.Value;
+        draft.RecursiveGridPlacement = recursiveGridPlacement.Value; draft.RecursiveGridMaxDepth = depth;
         draft.DrawSnapping = new() { Enabled = snapEnabled.IsChecked == true, Size = snapPixels, Toggle = snapShortcut.Value };
         draft.SmokedGlass = smokedGlass.IsChecked == true; draft.Theme = theme.SelectedItem as string ?? "System"; draft.StartAtLogin = startAtLogin.IsChecked == true;
         var message = draft.Validate() ?? save(draft);
