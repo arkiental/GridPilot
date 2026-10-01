@@ -40,6 +40,7 @@ jobs:
           ./scripts/Publish.ps1
           $hash = (Get-FileHash artifacts/GridPilot-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
           Set-Content -LiteralPath artifacts/SHA256SUMS.txt -Value "$hash  GridPilot-win-x64.zip" -Encoding ascii
+          Write-Output "Release SHA256: $hash"
       - name: Publish release assets
         shell: pwsh
         env:

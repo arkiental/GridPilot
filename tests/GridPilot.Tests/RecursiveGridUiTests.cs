@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -138,6 +139,21 @@ internal static partial class Program
             await busyPlacement;
             Assert(session.IsClosed && !session.IsCommitting && busyCommits == 1,
                 "completed pending placement closes its shield once the transaction settles");
+
+            await Task.Delay(100);
+            var invalidation = new TaskCompletionSource<PlacementResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            session = new(preflight, 1, _ => invalidation.Task);
+            await ShowOwnedRecursiveGridSession(session, fixture);
+            overlay = session.Overlay;
+            var invalidatingPoint = RecursiveCellCenter(overlay.Model.Leaves.First(overlay.Model.CanSelect));
+            var invalidatingPlacement = overlay.SelectAtAsync(invalidatingPoint.X, invalidatingPoint.Y);
+            session.Invalidate();
+            Assert(session.IsCommitting && !session.IsClosed && overlay.IsVisible,
+                "display invalidation keeps its input shield while a placement transaction is pending");
+            invalidation.SetResult(new(false, "Fixture display changed."));
+            await invalidatingPlacement;
+            Assert(session.IsClosed && !session.IsCommitting && WindowService.VisibleBounds(hwnd) == original,
+                "pending invalidation closes stale picker geometry after the transaction settles without moving the target");
 
             await Task.Delay(100);
             session = new(preflight, 2, _ => Task.FromResult(new PlacementResult(false, "Fixture learned one minimum axis.",
@@ -309,56 +325,171 @@ internal static partial class Program
 
     private static async Task ShowOwnedRecursiveGridSession(RecursiveGridSession session, Process fixture)
     {
+        var target = session.Target;
+        if (fixture.HasExited || target.ProcessId != fixture.Id || !WindowService.IsSameWindow(target))
+            throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: recursive grid target is not the live owned fixture.");
+        if (!Native.SetForegroundWindow(target.Handle))
+        {
+            if (!Environment.GetCommandLineArgs().Contains("--owned-fixture-input", StringComparer.Ordinal))
+                throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: Windows refused activation of the owned fixture target. Explicit --owned-fixture-input opt-in permits a fixture-only mouse click.");
+            ClickOwnedRecursiveFixture(target, fixture);
+        }
+        WaitForRecursiveOwnedActivation(target, fixture);
+        if (RequestForegroundHandoff(target.Handle, DrawForegroundHandoff, (nuint)Environment.ProcessId,
+                0, 2, 1000, out nuint granted) == 0 || granted != 1)
+            throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: owned fixture could not grant grid foreground activation.");
         session.Overlay.PreviewMouseMove += (_, e) => e.Handled = true;
         session.Show();
         var overlay = session.Overlay;
-        await Task.Delay(50);
-        overlay.SetPointer(overlay.Model.WorkArea.Left + overlay.Model.WorkArea.Width / 4,
-            overlay.Model.WorkArea.Top + overlay.Model.WorkArea.Height / 4);
-        SaveRecursiveGridScreenshot(overlay, "GridPilot-recursive-grid-initial.png");
-        WaitForRecursiveOwnedActivation(fixture);
         var overlayHandle = new WindowInteropHelper(overlay).Handle;
         if (Native.GetForegroundWindow() != overlayHandle)
         {
             Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out uint foregroundProcess);
-            if (session.IsClosed || fixture.HasExited || foregroundProcess != fixture.Id && foregroundProcess != Environment.ProcessId)
-                throw new InvalidOperationException($"NATIVE DESKTOP UNAVAILABLE: recursive grid startup foreground PID={foregroundProcess}; expected owned fixture {fixture.Id} or test {Environment.ProcessId}.");
-            if (foregroundProcess == fixture.Id && (RequestForegroundHandoff(fixture.MainWindowHandle, DrawForegroundHandoff,
-                    (nuint)Environment.ProcessId, 0, 2, 1000, out nuint granted) == 0 || granted != 1))
-                throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: owned fixture could not grant grid foreground activation.");
-            Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out foregroundProcess);
-            if (foregroundProcess != fixture.Id && foregroundProcess != Environment.ProcessId || !overlay.Activate())
-                throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: foreground changed or grid activation was refused.");
+            Native.GetWindowThreadProcessId(overlayHandle, out uint overlayProcess);
+            if (session.IsClosed || !overlay.IsVisible || fixture.HasExited || overlayProcess != Environment.ProcessId ||
+                foregroundProcess != 0 && foregroundProcess != fixture.Id && foregroundProcess != Environment.ProcessId)
+                throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: overlay activation lost its owned window. " +
+                    RecursiveGridActivationState(session, fixture, overlayHandle));
+            if ((foregroundProcess == fixture.Id || foregroundProcess == Environment.ProcessId) && !overlay.Activate())
+                throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: owned overlay activation retry was refused. " +
+                    RecursiveGridActivationState(session, fixture, overlayHandle));
         }
-        WaitForRecursiveForeground(overlayHandle, fixture);
-        Assert(!session.IsClosed && Native.GetForegroundWindow() == overlayHandle, "owned recursive overlay retains actual Windows foreground");
+        WaitForRecursiveForeground(session, overlayHandle, fixture);
+        await Task.Delay(50);
+        overlay.SetPointer(overlay.Model.WorkArea.Left + overlay.Model.WorkArea.Width / 4,
+            overlay.Model.WorkArea.Top + overlay.Model.WorkArea.Height / 4);
+        SaveRecursiveGridScreenshot(overlay, "GridPilot-recursive-grid-initial.png");
+        Assert(!session.IsClosed && overlay.IsVisible && Native.GetForegroundWindow() == overlayHandle,
+            "owned recursive overlay retains actual Windows foreground: " + RecursiveGridActivationState(session, fixture, overlayHandle));
     }
 
-    private static void WaitForRecursiveOwnedActivation(Process fixture)
+    private static void WaitForRecursiveOwnedActivation(WindowTarget target, Process fixture)
     {
         for (int attempt = 0; attempt < 100; attempt++)
         {
-            Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out uint process);
-            if (process == fixture.Id || process == Environment.ProcessId) return;
-            if (process != 0 || fixture.HasExited)
-                throw new InvalidOperationException($"NATIVE DESKTOP UNAVAILABLE: fixture startup encountered external foreground PID={process}.");
+            if (fixture.HasExited || !WindowService.IsSameWindow(target))
+                throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: owned fixture disappeared during its activation request.");
+            if (Native.GetForegroundWindow() == target.Handle) return;
             Thread.Sleep(10);
         }
-        throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: no owned foreground window appeared within one second.");
+        Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out uint process);
+        throw new InvalidOperationException($"NATIVE DESKTOP UNAVAILABLE: captured fixture target did not become foreground within one second; foreground PID={process}.");
     }
 
-    private static void WaitForRecursiveForeground(nint expected, Process fixture)
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RecursiveFixtureMouseInput
+    {
+        internal int X, Y;
+        internal uint Data, Flags, Time;
+        internal nuint ExtraInfo;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RecursiveFixtureInput
+    {
+        internal uint Type;
+        internal RecursiveFixtureMouseInput Mouse;
+    }
+
+    [DllImport("user32.dll", EntryPoint = "SendInput", SetLastError = true)]
+    private static extern uint SendRecursiveFixtureInput(uint count, [In] RecursiveFixtureInput[] inputs, int size);
+
+    [DllImport("user32.dll", EntryPoint = "GetClientRect", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetRecursiveFixtureClientRect(nint window, out Native.Rect rect);
+
+    [DllImport("user32.dll", EntryPoint = "ClientToScreen", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RecursiveFixtureClientToScreen(nint window, ref Native.Point point);
+
+    [DllImport("user32.dll", EntryPoint = "WindowFromPoint")]
+    private static extern nint RecursiveFixtureWindowFromPoint(Native.Point point);
+
+    [DllImport("user32.dll", EntryPoint = "GetAsyncKeyState")]
+    private static extern short RecursiveFixtureButtonState(int key);
+
+    private static void ClickOwnedRecursiveFixture(WindowTarget target, Process fixture)
+    {
+        if (!Environment.GetCommandLineArgs().Contains("--owned-fixture-input", StringComparer.Ordinal))
+            throw new InvalidOperationException("Fixture mouse input requires explicit --owned-fixture-input.");
+        bool OwnedTarget() => !fixture.HasExited && target.ProcessId == fixture.Id && WindowService.IsSameWindow(target) &&
+            Native.IsWindowVisible(target.Handle) && Native.IsWindowEnabled(target.Handle) && !Native.IsIconic(target.Handle);
+        bool MouseIsIdle() => new[] { 1, 2, 4 }.All(key => (RecursiveFixtureButtonState(key) & 0x8000) == 0);
+        if (!OwnedTarget() || !MouseIsIdle())
+            throw new InvalidOperationException("Fixture-only click aborted: target ownership changed or a mouse gesture is active.");
+        using var dpi = new Native.DpiScope();
+        if (!Native.GetCursorPos(out var originalCursor))
+            throw new InvalidOperationException("Fixture-only click aborted: original cursor position is unavailable.");
+        bool wasTopmost = ((long)Native.GetWindowLongPtr(target.Handle, -20) & 8) != 0;
+        bool raised = false;
+        try
+        {
+            if (!Native.SetWindowPos(target.Handle, new nint(-1), 0, 0, 0, 0, 0x13))
+                throw new InvalidOperationException("Fixture-only click aborted: Windows could not raise the owned target.");
+            raised = true;
+            if (!GetRecursiveFixtureClientRect(target.Handle, out var client) || client.Right - client.Left < 8 || client.Bottom - client.Top < 8)
+                throw new InvalidOperationException("Fixture-only click aborted: target has no safe client interior.");
+            var point = new Native.Point { X = client.Left + (client.Right - client.Left) / 2, Y = client.Top + (client.Bottom - client.Top) / 2 };
+            if (!RecursiveFixtureClientToScreen(target.Handle, ref point) || !Native.SetCursorPos(point.X, point.Y))
+                throw new InvalidOperationException("Fixture-only click aborted: Windows could not address the owned client point.");
+            if (!Native.GetCursorPos(out var actualPoint) || actualPoint.X != point.X || actualPoint.Y != point.Y)
+                throw new InvalidOperationException("Fixture-only click aborted: cursor did not reach the verified client point.");
+            var hit = RecursiveFixtureWindowFromPoint(actualPoint);
+            var root = Native.GetAncestor(hit, 2);
+            Native.GetWindowThreadProcessId(root, out uint hitProcess);
+            if (!OwnedTarget() || !MouseIsIdle() || root != target.Handle || hitProcess != target.ProcessId ||
+                ((long)Native.GetWindowLongPtr(target.Handle, -20) & 8) == 0)
+                throw new InvalidOperationException("Fixture-only click aborted: client point is no longer covered by the exact owned target.");
+            RecursiveFixtureInput[] inputs = [
+                new() { Type = 0, Mouse = new() { X = 0, Y = 0, Data = 0, Flags = 2, Time = 0, ExtraInfo = 0 } },
+                new() { Type = 0, Mouse = new() { X = 0, Y = 0, Data = 0, Flags = 4, Time = 0, ExtraInfo = 0 } }
+            ];
+            int inputSize = Marshal.SizeOf<RecursiveFixtureInput>();
+            if (inputSize != 40)
+                throw new InvalidOperationException("Fixture-only click aborted: native mouse input layout is unsupported.");
+            uint inserted = SendRecursiveFixtureInput(2, inputs, inputSize);
+            if (inserted != 2)
+            {
+                if (inserted == 1) SendRecursiveFixtureInput(1, [inputs[1]], inputSize);
+                throw new InvalidOperationException("Fixture-only click was refused or incomplete.");
+            }
+            WaitForRecursiveOwnedActivation(target, fixture);
+            Console.WriteLine("Opt-in mouse click activated only owned fixture HWND=" + target.Handle + " PID=" + target.ProcessId + ".");
+        }
+        finally
+        {
+            bool cursorRestored = Native.SetCursorPos(originalCursor.X, originalCursor.Y);
+            bool topmostRestored = !raised || fixture.HasExited || !WindowService.IsSameWindow(target) ||
+                Native.SetWindowPos(target.Handle, wasTopmost ? new nint(-1) : new nint(-2), 0, 0, 0, 0, 0x13);
+            if (!cursorRestored || !topmostRestored)
+                throw new InvalidOperationException("Fixture input cleanup could not restore cursor or owned topmost state.");
+        }
+    }
+
+    private static void WaitForRecursiveForeground(RecursiveGridSession session, nint expected, Process fixture)
     {
         for (int attempt = 0; attempt < 100; attempt++)
         {
             var foreground = Native.GetForegroundWindow();
-            if (foreground == expected) return;
+            if (foreground == expected && !session.IsClosed && session.Overlay.IsVisible) return;
             Native.GetWindowThreadProcessId(foreground, out uint process);
-            if (fixture.HasExited || process != 0 && process != fixture.Id && process != Environment.ProcessId)
-                throw new InvalidOperationException($"NATIVE DESKTOP UNAVAILABLE: grid foreground transition encountered external PID={process}.");
+            if (session.IsClosed || !session.Overlay.IsVisible || fixture.HasExited || process != 0 && process != fixture.Id && process != Environment.ProcessId)
+                throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: grid foreground transition lost its live owned overlay. " +
+                    RecursiveGridActivationState(session, fixture, expected));
             Thread.Sleep(10);
         }
-        throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: grid foreground transition did not finish within one second.");
+        throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: grid foreground transition did not finish within one second. " +
+            RecursiveGridActivationState(session, fixture, expected));
+    }
+
+    private static string RecursiveGridActivationState(RecursiveGridSession session, Process fixture, nint expected)
+    {
+        var foreground = Native.GetForegroundWindow();
+        Native.GetWindowThreadProcessId(foreground, out uint foregroundProcess);
+        Native.GetWindowThreadProcessId(expected, out uint expectedProcess);
+        return $"closed={session.IsClosed}, visible={session.Overlay.IsVisible}, committing={session.IsCommitting}, " +
+            $"expected HWND={expected}, expected PID={expectedProcess}, actual HWND={foreground}, actual PID={foregroundProcess}, " +
+            $"target HWND={session.Target.Handle}, fixture PID={fixture.Id}, fixture exited={fixture.HasExited}.";
     }
 
     private static void SaveRecursiveGridScreenshot(RecursiveGridWindow overlay, string fileName)
