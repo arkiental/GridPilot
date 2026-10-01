@@ -42,6 +42,12 @@ Drawing does not add grid gaps and moves only that window; without Ctrl, other w
 
 Keyboard: arrows move the crosshair by one physical pixel; **Alt + arrows** moves ten. Space or Enter sets the first corner, then sets the second corner and applies. Ctrl constrains free space and Shift swaps corners, just as in a mouse drag. Tab switches displays. Existing settings keep their previous shortcuts intact: assign **Draw placement** under **Settings → General** if its shortcut field is empty. Backspace clears this optional shortcut; the tray entry remains available.
 
+### Pick a recursive 2×2 cell
+
+Activate a resizable desktop window and press **Ctrl + Alt + G**, or choose **Recursive grid** in the tray. Existing settings leave this new shortcut unassigned; configure it under **Settings → General**. Right-click divides only the current leaf, middle-click undoes the last successful division globally, left-click places the original window in the exact leaf, and Escape cancels without moving it.
+
+The picker covers the target monitor's usable work area. Default maximum depth is **4** (initial 2×2 is depth 1; settings allow 1–8). Every final cell and every proposed child must fit the window's minimum size. A bounded native query uses conservative current/restored dimensions when limits cannot be read. Refused placement reports an error and uses the existing verified recovery/Undo. [Interaction details and limits](docs/RECURSIVE_GRID.md).
+
 ### Use the placement grid
 
 1. Activate a resizable desktop application window.

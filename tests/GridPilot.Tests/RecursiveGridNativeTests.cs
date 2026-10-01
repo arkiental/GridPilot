@@ -71,10 +71,11 @@ internal static partial class Program
                 Native.ShowWindowAsync(hwnd, 3);
                 for (int i = 0; i < 80 && !Native.IsZoomed(hwnd); i++) await Task.Delay(25);
                 Assert(Native.IsZoomed(hwnd), "recursive grid fixture enters maximized mode");
+                await Task.Delay(250);
                 var maximizedBounds = WindowService.VisibleBounds(hwnd);
                 var maximized = await RecursiveGridPlacement.PrepareAsync(target);
                 Assert(maximized.Preflight is { WasMaximized: true } && WindowService.VisibleBounds(hwnd) == maximizedBounds,
-                    "maximized recursive grid preflight reads minimum without restoring or moving its target");
+                    "maximized recursive grid preflight reads minimum without restoring or moving its target: " + maximized.Message);
                 if (maximized.Preflight is { } maximizedPreflight)
                 {
                     var maxCell = new PixelRect(left, top, left + maximizedPreflight.Minimum.MinimumWidth, top + maximizedPreflight.Minimum.MinimumHeight);
@@ -107,6 +108,29 @@ internal static partial class Program
             finally { if (!fixedFixture.HasExited) { fixedFixture.Kill(); await fixedFixture.WaitForExitAsync(); } }
         }
 
+        using (var refusingFixture = StartFixture("--refuse-position"))
+        {
+            try
+            {
+                var hwnd = await WaitForFixture(refusingFixture); await Task.Delay(150);
+                var target = WindowService.Capture(hwnd, out _)!;
+                var prepared = await RecursiveGridPlacement.PrepareAsync(target);
+                Assert(prepared.Preflight is not null, "position-refusing fixture still supports minimum-size preflight");
+                var preflight = prepared.Preflight!;
+                var original = preflight.OriginalVisible;
+                var bounds = new PixelRect(preflight.Display.Work.Left + 20, preflight.Display.Work.Top + 20,
+                    preflight.Display.Work.Left + 20 + original.Width, preflight.Display.Work.Top + 20 + original.Height);
+                if (bounds.Right <= preflight.Display.Work.Right && bounds.Bottom <= preflight.Display.Work.Bottom && bounds != original)
+                {
+                    var result = await RecursiveGridPlacement.PlaceAsync(new WindowService(), preflight, bounds);
+                    Assert(!result.Success && !string.IsNullOrWhiteSpace(result.Message) && WindowService.VisibleBounds(hwnd).Near(original),
+                        "an actual application's exact-position refusal returns feedback and preserves its previous visible frame");
+                }
+                else Console.WriteLine("Recursive grid native refusal fixture skipped: display has no distinct destination for its current size.");
+            }
+            finally { if (!refusingFixture.HasExited) { refusingFixture.Kill(); await refusingFixture.WaitForExitAsync(); } }
+        }
+
         using var slow = StartFixture("--slow-minimum");
         try
         {
@@ -122,6 +146,6 @@ internal static partial class Program
             await Task.Delay(1000);
         }
         finally { if (!slow.HasExited) { slow.Kill(); await slow.WaitForExitAsync(); } }
-        Console.WriteLine("Recursive grid native minima: constrained and DPI-unaware frames, exact placement, Undo, maximized/minimized/fixed eligibility, stale identity and bounded fallback passed.");
+        Console.WriteLine("Recursive grid native minima: constrained and DPI-unaware frames, exact placement, Undo, native refusal, maximized/minimized/fixed eligibility, stale identity and bounded fallback passed.");
     }
 }

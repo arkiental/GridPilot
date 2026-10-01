@@ -30,6 +30,7 @@ internal static partial class Program
             var prepared = await RecursiveGridPlacement.PrepareAsync(target!);
             Assert(prepared.Preflight is not null, "recursive grid prepares the target before showing UI: " + prepared.Message);
             var preflight = prepared.Preflight!;
+            Console.WriteLine($"Recursive UI fixture minimum: {preflight.Minimum.MinimumWidth} x {preflight.Minimum.MinimumHeight}; fallback={preflight.UsedConservativeFallback}; work={preflight.Display.Work}; DPI={preflight.Display.Dpi}.");
             var original = preflight.OriginalVisible;
             var service = new WindowService();
             int commits = 0;
@@ -103,6 +104,73 @@ internal static partial class Program
                 "Escape consumes the key, closes the picker and leaves the target untouched");
             WaitForOwnedForeground(hwnd, fixture);
             Assert(Native.GetForegroundWindow() == hwnd, "Escape restores focus to the original target fixture");
+
+            await Task.Delay(100);
+            session = new(preflight, 1, _ => Task.FromResult(new PlacementResult(false, "Fixture refused the exact cell.")));
+            await ShowOwnedRecursiveGridSession(session, fixture);
+            overlay = session.Overlay;
+            var refused = RecursiveCellCenter(overlay.Model.Leaves.First(overlay.Model.CanSelect));
+            await overlay.SelectAtAsync(refused.X, refused.Y);
+            Assert(!session.IsClosed && !session.IsCommitting && overlay.Notice == "Fixture refused the exact cell." &&
+                WindowService.VisibleBounds(hwnd) == original && commits == 0,
+                "placement refusal leaves the picker usable, gives feedback and preserves target geometry");
+            session.Cancel(true);
+
+            await Task.Delay(100);
+            var transaction = new TaskCompletionSource<PlacementResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+            int busyCommits = 0;
+            session = new(preflight, 2, _ => { busyCommits++; return transaction.Task; });
+            await ShowOwnedRecursiveGridSession(session, fixture);
+            overlay = session.Overlay;
+            var busyCell = overlay.Model.Leaves.First(overlay.Model.CanSelect);
+            var busyPoint = RecursiveCellCenter(busyCell);
+            var busyPlacement = overlay.SelectAtAsync(busyPoint.X, busyPoint.Y);
+            var busyLeaves = overlay.Model.Leaves.ToArray();
+            session.Cancel(true); session.Cancel(false);
+            overlay.Close();
+            RaiseRecursiveMiddleClick(overlay);
+            bool busySplit = overlay.SubdivideAt(busyPoint.X, busyPoint.Y);
+            await overlay.SelectAtAsync(busyPoint.X, busyPoint.Y);
+            Assert(session.IsCommitting && !session.IsClosed && overlay.IsVisible && busyCommits == 1 && !busySplit &&
+                overlay.Model.Leaves.SequenceEqual(busyLeaves) && overlay.Model.UndoCount == 0,
+                "pending placement keeps its input shield and blocks cancellation, undo, subdivisions and repeated commits");
+            transaction.SetResult(new(true));
+            await busyPlacement;
+            Assert(session.IsClosed && !session.IsCommitting && busyCommits == 1,
+                "completed pending placement closes its shield once the transaction settles");
+
+            await Task.Delay(100);
+            session = new(preflight, 2, _ => Task.FromResult(new PlacementResult(false, "Fixture learned one minimum axis.",
+                new(target!, preflight.Display.Work.Width / 2 + 1, 0))));
+            await ShowOwnedRecursiveGridSession(session, fixture);
+            overlay = session.Overlay;
+            var learningSplit = RecursiveCellCenter(overlay.Model.Leaves.First(overlay.Model.CanSubdivide));
+            Assert(overlay.SubdivideAt(learningSplit.X, learningSplit.Y), "refusal fixture has subdivision history to preserve");
+            var beforeLearned = overlay.Model.Leaves.ToArray();
+            int learningHistory = overlay.Model.UndoCount;
+            var learningCell = overlay.Model.Leaves.First(c => c.Depth == 1 && overlay.Model.CanSelect(c));
+            var learningPoint = RecursiveCellCenter(learningCell);
+            await overlay.SelectAtAsync(learningPoint.X, learningPoint.Y);
+            Assert(!session.IsClosed && overlay.Model.MinimumWidth > learningCell.Bounds.Width &&
+                overlay.Model.MinimumHeight == preflight.Minimum.MinimumHeight && !overlay.Model.CanSelect(learningCell) &&
+                overlay.Model.Leaves.SequenceEqual(beforeLearned) && overlay.Model.UndoCount == learningHistory,
+                "a learned width-only refusal preserves the other minimum axis, tree and undo history while disabling undersized cells");
+            RaiseRecursiveMiddleClick(overlay);
+            Assert(overlay.Model.UndoCount == learningHistory - 1, "learned minimum feedback keeps middle-click undo usable");
+            session.Cancel(true);
+
+            await Task.Delay(100);
+            session = new(preflight, 2, _ => Task.FromResult(new PlacementResult(false, "Fixture learned the other minimum axis.",
+                new(target!, 0, preflight.Display.Work.Height / 2 + 1))));
+            await ShowOwnedRecursiveGridSession(session, fixture);
+            overlay = session.Overlay;
+            var heightCell = overlay.Model.Leaves.First(overlay.Model.CanSelect);
+            var heightPoint = RecursiveCellCenter(heightCell);
+            await overlay.SelectAtAsync(heightPoint.X, heightPoint.Y);
+            Assert(!session.IsClosed && overlay.Model.MinimumWidth == preflight.Minimum.MinimumWidth &&
+                overlay.Model.MinimumHeight > heightCell.Bounds.Height && !overlay.Model.CanSelect(heightCell) && overlay.Model.UndoCount == 0,
+                "a learned height-only refusal preserves width, does not invent history and disables undersized cells");
+            session.Cancel(true);
 
             await Task.Delay(100);
             session = new(preflight, 1, bounds => { commits++; return RecursiveGridPlacement.PlaceAsync(service, preflight, bounds); });
@@ -216,8 +284,9 @@ internal static partial class Program
             Click(editor, "Save settings");
             Assert(saved?.RecursiveGridMaxDepth == 2 && saved.RecursiveGridPlacement == new Shortcut(3, 0x4a),
                 "real settings editor saves configured recursive grid depth and shortcut");
-            Assert(saved!.DrawPlacement == initial.DrawPlacement && saved.DrawSnapping.Size == initial.DrawSnapping.Size &&
-                saved.Activation == initial.Activation && saved.Presets.Select(p => p.Id).SequenceEqual(initial.Presets.Select(p => p.Id)),
+            var savedSettings = saved!;
+            Assert(savedSettings.DrawPlacement == initial.DrawPlacement && savedSettings.DrawSnapping.Size == initial.DrawSnapping.Size &&
+                savedSettings.Activation == initial.Activation && savedSettings.Presets.Select(p => p.Id).SequenceEqual(initial.Presets.Select(p => p.Id)),
                 "recursive settings edits preserve drawing and existing GridPilot bindings");
         }
         finally { editor.Close(); }
@@ -232,7 +301,9 @@ internal static partial class Program
         using var contender = new HotkeyService();
         Assert(!contender.TryApply([new(shortcut, "Competing fixture", () => { })], out var collisionError) && collisionError is not null,
             "real Windows hotkey collision is reported instead of silently stealing the binding");
-        Assert(owner.TryApply([], out _) && contender.TryApply([new(shortcut, "Released fixture", () => { })], out var releaseError),
+        bool cleared = owner.TryApply([], out _);
+        bool registered = contender.TryApply([new(shortcut, "Released fixture", () => { })], out var releaseError);
+        Assert(cleared && registered,
             "clearing a binding releases the actual Windows registration: " + releaseError);
     }
 
@@ -241,6 +312,11 @@ internal static partial class Program
         session.Overlay.PreviewMouseMove += (_, e) => e.Handled = true;
         session.Show();
         var overlay = session.Overlay;
+        await Task.Delay(50);
+        overlay.SetPointer(overlay.Model.WorkArea.Left + overlay.Model.WorkArea.Width / 4,
+            overlay.Model.WorkArea.Top + overlay.Model.WorkArea.Height / 4);
+        SaveRecursiveGridScreenshot(overlay, "GridPilot-recursive-grid-initial.png");
+        WaitForRecursiveOwnedActivation(fixture);
         var overlayHandle = new WindowInteropHelper(overlay).Handle;
         if (Native.GetForegroundWindow() != overlayHandle)
         {
@@ -254,9 +330,35 @@ internal static partial class Program
             if (foregroundProcess != fixture.Id && foregroundProcess != Environment.ProcessId || !overlay.Activate())
                 throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: foreground changed or grid activation was refused.");
         }
-        WaitForOwnedForeground(overlayHandle, fixture);
-        await Task.Delay(50);
+        WaitForRecursiveForeground(overlayHandle, fixture);
         Assert(!session.IsClosed && Native.GetForegroundWindow() == overlayHandle, "owned recursive overlay retains actual Windows foreground");
+    }
+
+    private static void WaitForRecursiveOwnedActivation(Process fixture)
+    {
+        for (int attempt = 0; attempt < 100; attempt++)
+        {
+            Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out uint process);
+            if (process == fixture.Id || process == Environment.ProcessId) return;
+            if (process != 0 || fixture.HasExited)
+                throw new InvalidOperationException($"NATIVE DESKTOP UNAVAILABLE: fixture startup encountered external foreground PID={process}.");
+            Thread.Sleep(10);
+        }
+        throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: no owned foreground window appeared within one second.");
+    }
+
+    private static void WaitForRecursiveForeground(nint expected, Process fixture)
+    {
+        for (int attempt = 0; attempt < 100; attempt++)
+        {
+            var foreground = Native.GetForegroundWindow();
+            if (foreground == expected) return;
+            Native.GetWindowThreadProcessId(foreground, out uint process);
+            if (fixture.HasExited || process != 0 && process != fixture.Id && process != Environment.ProcessId)
+                throw new InvalidOperationException($"NATIVE DESKTOP UNAVAILABLE: grid foreground transition encountered external PID={process}.");
+            Thread.Sleep(10);
+        }
+        throw new InvalidOperationException("NATIVE DESKTOP UNAVAILABLE: grid foreground transition did not finish within one second.");
     }
 
     private static void SaveRecursiveGridScreenshot(RecursiveGridWindow overlay, string fileName)

@@ -16,8 +16,8 @@ public sealed class RecursiveGrid
 
     public PixelRect WorkArea { get; }
     public int MaxDepth { get; }
-    public int MinimumWidth { get; }
-    public int MinimumHeight { get; }
+    public int MinimumWidth { get; private set; }
+    public int MinimumHeight { get; private set; }
     public ReadOnlyCollection<RecursiveGridCell> Leaves { get; }
     public int UndoCount => history.Count;
 
@@ -32,6 +32,14 @@ public sealed class RecursiveGrid
         WorkArea = workArea; MaxDepth = maxDepth; MinimumWidth = minimumWidth; MinimumHeight = minimumHeight;
         leaves = [.. Children(new("", workArea, 0))];
         Leaves = leaves.AsReadOnly();
+    }
+
+    public void UpdateMinimum(int width, int height)
+    {
+        if (width < 1) throw new ArgumentOutOfRangeException(nameof(width));
+        if (height < 1) throw new ArgumentOutOfRangeException(nameof(height));
+        MinimumWidth = Math.Max(MinimumWidth, width);
+        MinimumHeight = Math.Max(MinimumHeight, height);
     }
 
     public RecursiveGridCell? HitTest(int x, int y)

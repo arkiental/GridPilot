@@ -60,6 +60,7 @@ internal sealed class RecursiveGridWindow : Window
         Loaded += (_, _) => { UpdateMetrics(); Focus(); Refresh(); };
         SizeChanged += (_, _) => UpdateMetrics();
         Deactivated += (_, _) => session.CheckActivation();
+        Closing += (_, e) => e.Cancel = session.IsCommitting;
         Closed += (_, _) => session.Cancel(false);
         PreviewMouseMove += (_, _) => { if (!busy && ReadPointer(out var x, out var y)) SetPointer(x, y); };
         PreviewMouseDown += (_, e) =>
@@ -95,6 +96,7 @@ internal sealed class RecursiveGridWindow : Window
             else return;
             e.Handled = true;
         };
+        Refresh();
     }
     private static Brush Solid(byte r, byte g, byte b) { var brush = new SolidColorBrush(Color.FromRgb(r, g, b)); brush.Freeze(); return brush; }
     private void UpdateMetrics()
@@ -107,7 +109,7 @@ internal sealed class RecursiveGridWindow : Window
     }
     private nint WindowMessage(nint hwnd, int message, nint wParam, nint lParam, ref bool handled)
     {
-        if (message is 0x7e or 0x1a || message == 0x2e0 && IsLoaded) Dispatcher.BeginInvoke(() => session.Cancel(false));
+        if (message is 0x7e or 0x1a || message == 0x2e0 && IsLoaded) Dispatcher.BeginInvoke(session.Invalidate);
         return 0;
     }
     private static bool ReadPointer(out int x, out int y)

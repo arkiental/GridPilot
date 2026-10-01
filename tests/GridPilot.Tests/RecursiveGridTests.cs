@@ -1,3 +1,5 @@
+using System.IO;
+using System.Text.Json;
 using GridPilot.Core;
 
 namespace GridPilot.Tests;
@@ -6,6 +8,7 @@ internal static partial class Program
 {
     private static void RecursiveGridTests()
     {
+        RecursiveGridSettingsTests();
         var work = new PixelRect(-1921, -301, 0, 780);
         var grid = new RecursiveGrid(work);
         var original = grid.Leaves.ToArray();
@@ -71,6 +74,26 @@ internal static partial class Program
         var shortGrid = new RecursiveGrid(new(0, 0, 400, 400), 8, 1, 101);
         Assert(!narrow.CanSubdivide(narrow.Leaves[0]) && !shortGrid.CanSubdivide(shortGrid.Leaves[0]), "width and height minimums independently block splitting");
 
+        var changingMinimum = new RecursiveGrid(new(0, 0, 1000, 1000), 8, 1, 1);
+        var changingParent = changingMinimum.Leaves[0];
+        Assert(changingMinimum.TrySubdivide(changingParent), "grid can subdivide before a larger target minimum is detected");
+        var changingTree = changingMinimum.Leaves.ToArray();
+        changingMinimum.UpdateMinimum(251, 200);
+        Assert(changingMinimum.MinimumWidth == 251 && changingMinimum.MinimumHeight == 200 && changingMinimum.Leaves.SequenceEqual(changingTree) && changingMinimum.UndoCount == 1,
+            "updated minimum retains tree identities, rectangles and successful subdivision history");
+        Assert(changingMinimum.Leaves.Take(4).All(c => !changingMinimum.CanSelect(c) && !changingMinimum.CanSubdivide(c)),
+            "larger detected minimum immediately disables existing undersized leaves and their subdivisions");
+        changingMinimum.UpdateMinimum(200, 300);
+        Assert(changingMinimum.MinimumWidth == 251 && changingMinimum.MinimumHeight == 300, "minimum updates raise each axis independently and never lower earlier constraints");
+        changingMinimum.UpdateMinimum(1, 1);
+        Assert(changingMinimum.MinimumWidth == 251 && changingMinimum.MinimumHeight == 300, "later smaller minimum reading cannot restore invalid placement");
+        Assert(changingMinimum.Undo(out restored) && restored == changingParent && changingMinimum.CanSelect(restored) && !changingMinimum.CanSubdivide(restored),
+            "undo after minimum update restores a valid parent while retaining the new subdivision limit");
+        Throws(() => changingMinimum.UpdateMinimum(400, 0), "minimum update rejects invalid height before raising width");
+        Throws(() => changingMinimum.UpdateMinimum(0, 400), "minimum update rejects invalid width before raising height");
+        Assert(changingMinimum.MinimumWidth == 251 && changingMinimum.MinimumHeight == 300 && changingMinimum.UndoCount == 0,
+            "invalid minimum updates leave both dimensions and undo history untouched");
+
         var depthOne = new RecursiveGrid(new(0, 0, 8, 8), 1);
         Assert(depthOne.Leaves.All(depthOne.CanSelect) && depthOne.Leaves.All(c => !depthOne.TrySubdivide(c)) && !depthOne.Undo(), "configured maximum one keeps the initial four cells selectable");
         var deepest = new RecursiveGrid(new(-65537, -65539, 0, 0), RecursiveGrid.MaximumAllowedDepth);
@@ -99,6 +122,66 @@ internal static partial class Program
         Throws(() => new RecursiveGrid(work, 4, 0, 1), "nonpositive minimum width");
         Throws(() => new RecursiveGrid(work, 4, 1, 0), "nonpositive minimum height");
         Console.WriteLine("Recursive grid: exact shared edges, local splits, depth/minimum checks, stale cells and global subdivision undo passed.");
+    }
+
+    private static void RecursiveGridSettingsTests()
+    {
+        var defaults = new AppSettings();
+        Assert(defaults.RecursiveGridPlacement == new Shortcut(3, 0x47) && defaults.RecursiveGridMaxDepth == RecursiveGrid.DefaultMaxDepth && defaults.Validate() is null,
+            "new installations use collision-free Ctrl+Alt+G and default recursive depth four");
+        var migrated = JsonSerializer.Deserialize<AppSettings>("{\"Version\":1,\"DrawPlacement\":{\"Modifiers\":3,\"Key\":71}}")!;
+        Assert(migrated.RecursiveGridPlacement is null && migrated.RecursiveGridMaxDepth == RecursiveGrid.DefaultMaxDepth &&
+            migrated.DrawPlacement == new Shortcut(3, 0x47) && migrated.Validate() is null,
+            "old settings retain an existing Draw binding on Ctrl+Alt+G and do not claim a new global shortcut");
+        Assert(migrated.Clone().RecursiveGridPlacement is null && migrated.Clone().DrawPlacement == migrated.DrawPlacement,
+            "migrated unassigned recursive shortcut and existing Draw shortcut survive settings cloning");
+        var older = JsonSerializer.Deserialize<AppSettings>("{\"Version\":1}")!;
+        Assert(older.RecursiveGridPlacement is null && older.DrawPlacement is null && older.RecursiveGridMaxDepth == 4 && older.Validate() is null,
+            "settings predating both optional actions keep their missing shortcuts unassigned");
+
+        var configured = new AppSettings { RecursiveGridPlacement = new(3, 0x4a), RecursiveGridMaxDepth = 8 };
+        var cloned = configured.Clone();
+        Assert(cloned.RecursiveGridPlacement == configured.RecursiveGridPlacement && cloned.RecursiveGridMaxDepth == 8,
+            "custom recursive shortcut and maximum depth round-trip through JSON cloning");
+        string directory = Path.Combine(Path.GetTempPath(), "GridPilot-recursive-settings-" + Guid.NewGuid().ToString("N"));
+        var store = new SettingsStore(directory);
+        try
+        {
+            store.Save(configured);
+            var loaded = store.Load();
+            Assert(loaded.Warning is null && loaded.Settings.RecursiveGridPlacement == new Shortcut(3, 0x4a) && loaded.Settings.RecursiveGridMaxDepth == 8,
+                "custom recursive shortcut and maximum depth persist through actual settings save and reload");
+            configured.RecursiveGridPlacement = null; configured.RecursiveGridMaxDepth = 1;
+            store.Save(configured);
+            loaded = store.Load();
+            Assert(loaded.Warning is null && loaded.Settings.RecursiveGridPlacement is null && loaded.Settings.RecursiveGridMaxDepth == 1,
+                "disabled recursive shortcut and depth one remain disabled and persist through replacement save");
+        }
+        finally
+        {
+            foreach (string suffix in new[] { "", ".bak", ".tmp", ".corrupt" }) File.Delete(store.FilePath + suffix);
+            if (Directory.Exists(directory)) Directory.Delete(directory);
+        }
+
+        foreach (int invalidDepth in new[] { 0, 9 })
+        {
+            var invalid = new AppSettings { RecursiveGridMaxDepth = invalidDepth };
+            Assert(invalid.Validate() is not null, "settings reject recursive depth outside one through eight");
+        }
+        Assert(new AppSettings { RecursiveGridMaxDepth = 1 }.Validate() is null && new AppSettings { RecursiveGridMaxDepth = 8 }.Validate() is null,
+            "both inclusive recursive depth boundaries are valid settings");
+        (string Name, Action<AppSettings> Change)[] conflicts = [
+            ("activation", settings => settings.Activation = settings.RecursiveGridPlacement!),
+            ("Draw", settings => settings.DrawPlacement = settings.RecursiveGridPlacement),
+            ("Undo", settings => settings.Undo = settings.RecursiveGridPlacement),
+            ("preset", settings => settings.Presets[0].Shortcut = settings.RecursiveGridPlacement),
+            ("fill empty slot", settings => settings.PartialWorkspace.Shortcut = settings.RecursiveGridPlacement)
+        ];
+        foreach (var conflict in conflicts)
+        {
+            var invalid = new AppSettings(); conflict.Change(invalid);
+            Assert(invalid.Validate() is not null, "recursive shortcut collision is rejected for " + conflict.Name);
+        }
     }
 
     private static void RecursiveGridCoverage(RecursiveGrid grid)
