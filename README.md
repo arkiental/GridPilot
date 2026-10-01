@@ -44,9 +44,9 @@ Keyboard: arrows move the crosshair by one physical pixel; **Alt + arrows** move
 
 ### Pick a recursive 2×2 cell
 
-Activate a resizable desktop window and press **Ctrl + Alt + G**, or choose **Recursive grid** in the tray. Existing settings leave this new shortcut unassigned; configure it under **Settings → General**. Right-click divides only the current leaf, middle-click undoes the last successful division globally, left-click places the original window in the exact leaf, and Escape cancels without moving it.
+Activate a resizable desktop window and press **Ctrl + Alt + G**, or choose **Recursive grid** in the tray. Existing settings leave this new shortcut unassigned; configure it under **Settings → General**. The desktop stays visible beneath thin grid lines and an orange preview of the proposed placement. Click places one leaf; hold left-click and drag to select intersected leaves, then release to place their bounding box. Right-click divides one leaf, **A** divides every eligible leaf once (configurable), middle-click undoes one division step, and Escape cancels without moving the captured window.
 
-The picker covers the target monitor's usable work area. Default maximum depth is **4** (initial 2×2 is depth 1; settings allow 1–8). Every final cell and every proposed child must fit the window's minimum size. A bounded native query uses conservative current/restored dimensions when limits cannot be read. Refused placement reports an error and uses the existing verified recovery/Undo. [Interaction details and limits](docs/RECURSIVE_GRID.md).
+The picker covers the target monitor's usable work area and intercepts mouse input. Default maximum depth is **4** (initial 2×2 is depth 1; settings allow 1–8). Every proposed child and final selection must fit the window's reported minimum size. A bounded native query honors app overrides below Windows defaults; unavailable limits use a labeled tracking estimate rather than the window's current size. Refused placement reports an error and uses the existing verified recovery/Undo. [Interaction details and limits](docs/RECURSIVE_GRID.md).
 
 ### Use the placement grid
 

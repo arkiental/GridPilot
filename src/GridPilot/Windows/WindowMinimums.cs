@@ -27,9 +27,10 @@ internal static class WindowMinimums
         PixelRect visible;
         try { visible = WindowService.VisibleBounds(target.Handle); }
         catch (InvalidOperationException) { return null; }
+        int defaultWidth = Native.GetSystemMetricsForDpi(34, windowDpi), defaultHeight = Native.GetSystemMetricsForDpi(35, windowDpi);
         var info = new Native.MinMaxInfo
         {
-            MinTrackSize = new() { X = Native.GetSystemMetricsForDpi(34, windowDpi), Y = Native.GetSystemMetricsForDpi(35, windowDpi) },
+            MinTrackSize = new() { X = defaultWidth, Y = defaultHeight },
             MaxTrackSize = new() { X = Native.GetSystemMetricsForDpi(59, windowDpi), Y = Native.GetSystemMetricsForDpi(60, windowDpi) },
             MaxSize = new() { X = Native.GetSystemMetricsForDpi(61, windowDpi), Y = Native.GetSystemMetricsForDpi(62, windowDpi) }
         };
@@ -40,11 +41,23 @@ internal static class WindowMinimums
         if (!WindowService.IsSameWindow(target) || Native.GetDpiForWindow(target.Handle) != windowDpi ||
             Native.MonitorFromWindow(target.Handle, 2) != monitor.Handle || Native.IsZoomed(target.Handle) != maximized ||
             !Native.GetWindowRect(target.Handle, out var after) || after.Pixels != outer.Pixels) return null;
-        // A maximized frame has different invisible insets. Keep its outer minimum
-        // conservatively rather than subtracting incorrect restored-frame borders.
-        return ToVisible(target, info.MinTrackSize.X, info.MinTrackSize.Y, windowDpi, monitor.Dpi,
-            maximized ? 0 : Math.Max(0, outer.Pixels.Width - visible.Width),
-            maximized ? 0 : Math.Max(0, outer.Pixels.Height - visible.Height));
+        var insets = InvisibleInsets(target, monitor.Dpi, outer.Pixels, visible, maximized);
+        var minimum = ToVisible(target, info.MinTrackSize.X, info.MinTrackSize.Y, windowDpi, monitor.Dpi,
+            insets.Width, insets.Height);
+        return minimum is null ? null : minimum with { IsEstimated = maximized || info.MinTrackSize.X == defaultWidth && info.MinTrackSize.Y == defaultHeight };
+    }
+
+    internal static (int Width, int Height) InvisibleInsets(WindowTarget target, uint dpi, PixelRect outer, PixelRect visible, bool maximized)
+    {
+        if (!maximized) return (Math.Max(0, outer.Width - visible.Width), Math.Max(0, outer.Height - visible.Height));
+        uint style = (uint)(long)Native.GetWindowLongPtr(target.Handle, -16);
+        // Standard DWM frames hide the side/bottom sizing borders beyond the
+        // visible one-pixel frame; the top caption edge stays visible.
+        if ((style & 0x00c00000) != 0x00c00000) return (0, 0);
+        var frame = new Native.Rect();
+        if (!Native.AdjustWindowRectExForDpi(ref frame, style, false, (uint)(long)Native.GetWindowLongPtr(target.Handle, -20), dpi)) return (0, 0);
+        int borderX = Native.GetSystemMetricsForDpi(5, dpi), borderY = Native.GetSystemMetricsForDpi(6, dpi);
+        return (Math.Max(0, frame.Right - frame.Left - 2 * borderX), Math.Max(0, frame.Bottom - borderY));
     }
 
     internal static PlacementConstraint? ToVisible(WindowTarget target, int width, int height, uint windowDpi, uint monitorDpi, int invisibleWidth, int invisibleHeight)

@@ -241,7 +241,7 @@ public partial class App : Application
             var foreground = Native.GetForegroundWindow();
             if (foreground != openingForeground && foreground != target.Handle) return;
             panel?.Dismiss(false); lastTarget = target;
-            var next = new RecursiveGridSession(preflight, settings.RecursiveGridMaxDepth, bounds => RecursiveGridPlacement.PlaceAsync(windows, preflight, bounds));
+            var next = new RecursiveGridSession(preflight, settings.RecursiveGridMaxDepth, bounds => RecursiveGridPlacement.PlaceAsync(windows, preflight, bounds), settings.RecursiveGridDivideAll);
             recursiveSession = next;
             next.Closed += () => { if (recursiveSession == next) recursiveSession = null; RestoreHotkeys(); UpdateTray(); };
             hotkeys?.TryApply(settings.RecursiveGridPlacement is { } shortcut

@@ -12,7 +12,7 @@ public sealed class RecursiveGrid
     public const int MaximumAllowedDepth = 8;
 
     private readonly List<RecursiveGridCell> leaves;
-    private readonly Stack<(RecursiveGridCell Cell, int Index)> history = new();
+    private readonly Stack<(RecursiveGridCell Cell, int Index)[]> history = new();
 
     public PixelRect WorkArea { get; }
     public int MaxDepth { get; }
@@ -56,6 +56,30 @@ public sealed class RecursiveGrid
     public bool CanSelect(RecursiveGridCell cell) => leaves.Contains(cell) &&
         cell.Bounds.Width >= MinimumWidth && cell.Bounds.Height >= MinimumHeight;
 
+    public bool CanSelect(PixelRect bounds) => bounds.IsValid &&
+        bounds.Left >= WorkArea.Left && bounds.Top >= WorkArea.Top &&
+        bounds.Right <= WorkArea.Right && bounds.Bottom <= WorkArea.Bottom &&
+        bounds.Width >= MinimumWidth && bounds.Height >= MinimumHeight;
+
+    public RecursiveGridCell[] SelectCells(int startX, int startY, int endX, int endY)
+    {
+        startX = Math.Clamp(startX, WorkArea.Left, WorkArea.Right - 1);
+        endX = Math.Clamp(endX, WorkArea.Left, WorkArea.Right - 1);
+        startY = Math.Clamp(startY, WorkArea.Top, WorkArea.Bottom - 1);
+        endY = Math.Clamp(endY, WorkArea.Top, WorkArea.Bottom - 1);
+        int left = Math.Min(startX, endX), top = Math.Min(startY, endY);
+        int right = Math.Max(startX, endX) + 1, bottom = Math.Max(startY, endY) + 1;
+        return leaves.Where(c => c.Bounds.Left < right && c.Bounds.Right > left &&
+            c.Bounds.Top < bottom && c.Bounds.Bottom > top).ToArray();
+    }
+
+    public static PixelRect BoundingBox(IReadOnlyList<RecursiveGridCell> cells)
+    {
+        if (cells.Count == 0) throw new ArgumentException("Select at least one leaf.", nameof(cells));
+        return new(cells.Min(c => c.Bounds.Left), cells.Min(c => c.Bounds.Top),
+            cells.Max(c => c.Bounds.Right), cells.Max(c => c.Bounds.Bottom));
+    }
+
     public bool CanSubdivide(RecursiveGridCell cell) => GetSubdivisionBlock(cell) == RecursiveGridSubdivisionBlock.None;
 
     public RecursiveGridSubdivisionBlock GetSubdivisionBlock(RecursiveGridCell cell)
@@ -74,8 +98,24 @@ public sealed class RecursiveGrid
         int index = leaves.IndexOf(cell);
         leaves.RemoveAt(index);
         leaves.InsertRange(index, Children(cell));
-        history.Push((cell, index));
+        history.Push([(cell, index)]);
         return true;
+    }
+
+    public int SubdivideAll()
+    {
+        var changes = new List<(RecursiveGridCell Cell, int Index)>();
+        // Descending indexes keep untouched leaves stable during the bulk edit.
+        for (int index = leaves.Count - 1; index >= 0; index--)
+        {
+            var cell = leaves[index];
+            if (!CanSubdivide(cell)) continue;
+            leaves.RemoveAt(index);
+            leaves.InsertRange(index, Children(cell));
+            changes.Add((cell, index));
+        }
+        if (changes.Count > 0) history.Push(changes.ToArray());
+        return changes.Count;
     }
 
     public bool Undo() => Undo(out _);
@@ -83,11 +123,14 @@ public sealed class RecursiveGrid
     public bool Undo(out RecursiveGridCell restoredCell)
     {
         restoredCell = default;
-        if (!history.TryPop(out var subdivision)) return false;
-        // Global LIFO order removes later descendant and sibling edits first.
-        leaves.RemoveRange(subdivision.Index, 4);
-        leaves.Insert(subdivision.Index, subdivision.Cell);
-        restoredCell = subdivision.Cell;
+        if (!history.TryPop(out var subdivisions)) return false;
+        // Reverse the edit order so bulk subdivision is one global undo step.
+        foreach (var subdivision in subdivisions.Reverse())
+        {
+            leaves.RemoveRange(subdivision.Index, 4);
+            leaves.Insert(subdivision.Index, subdivision.Cell);
+        }
+        restoredCell = subdivisions[0].Cell;
         return true;
     }
 

@@ -4,7 +4,10 @@ using System.Text;
 namespace GridPilot.Windows;
 
 public sealed record WindowTarget(nint Handle, uint ProcessId, string Title);
-public sealed record PlacementConstraint(WindowTarget Target, int MinimumWidth, int MinimumHeight);
+public sealed record PlacementConstraint(WindowTarget Target, int MinimumWidth, int MinimumHeight)
+{
+    public bool IsEstimated { get; init; }
+}
 public sealed record PlacementResult(bool Success, string? Message = null, PlacementConstraint? Constraint = null);
 
 public sealed class WindowService

@@ -1,5 +1,15 @@
 # Validation
 
+## Transparent preview and drag selection, 1 October (issue #53)
+
+The Release solution build passed with warnings as errors (zero warnings/errors). Local test suites and native automated assertion harnesses were **skipped at the owner's explicit request**. Previous assertion totals below belong to earlier releases and do not validate this follow-up. Existing GitHub build/core-check and release workflows are unchanged; their results are reported separately on the PR/release.
+
+Actual desktop screenshots capture the production transparent picker above disposable owned windows, including live hover and a reverse-direction drag across unequal nested leaves before release. Escape cancels the capture session. These are visual evidence, not automated test results. Independent read-only source review covers selection bounds, gesture capture/cancellation, atomic bulk subdivision history, minimum-query fallback and restored frame conversion.
+
+The picker now uses a nonzero-alpha input surface, thin grid outlines and restrained selection tint; the desktop stays live beneath it. Divide-all is a persisted picker-only shortcut (default A), applies one level to eligible leaves, and creates one undo step. Minimum preflight no longer treats current/restored window size as a hard minimum or clamps valid app responses to larger system defaults. Unknown/default tracking values are labeled estimates; standard maximized frame insets are estimated without resizing to probe. Actual app refusals still trigger exact-placement verification and recovery.
+
+No new assertion coverage was added. Multi-monitor/mixed-DPI transitions, custom-chrome maximized borders, protected/elevated/RDP apps and representative browser/other application minimum rules remain manual validation limits.
+
 ## Recursive grid, 1 October (issue #51)
 
 The Release solution build passed with warnings as errors (zero warnings/errors). Core checks passed **8,237 assertions**, including **2,054** recursive rectangle/depth/minimum assertions. The focused owned native minimum suite `--recursive-grid-native` passed **8,269 assertions**; the final owned WPF suite `--recursive-grid --owned-fixture-input` passed **8,296 assertions** on one **1920 x 1080 display at 100%**, with a **1920 x 1032** work area.

@@ -19,22 +19,21 @@ internal static class RecursiveGridPlacement
         if (ReadState(target, out error) is not { } after) return new(null, error);
         if (!SameState(before, after)) return new(null, "The target window or display changed while its minimum size was checked. Open the grid again.");
 
-        int invisibleWidth = before.Maximized ? 0 : Math.Max(0, before.Outer.Width - before.Visible.Width);
-        int invisibleHeight = before.Maximized ? 0 : Math.Max(0, before.Outer.Height - before.Visible.Height);
+        var insets = WindowMinimums.InvisibleInsets(target, before.Display.Dpi, before.Outer, before.Visible, before.Maximized);
         PlacementConstraint? system;
         using (new Native.DpiScope())
             system = WindowMinimums.ToVisible(target,
                 Native.GetSystemMetricsForDpi(34, before.WindowDpi), Native.GetSystemMetricsForDpi(35, before.WindowDpi),
-                before.WindowDpi, before.Display.Dpi, invisibleWidth, invisibleHeight);
+                before.WindowDpi, before.Display.Dpi, insets.Width, insets.Height);
 
-        // DWM exposes the current frame only. Without restoring a maximized target,
-        // its saved outer size is a conservative upper bound for its restored visible size.
+        // Current/restored size is not evidence of a minimum. A failed query uses
+        // a tracking estimate; placement still verifies and rolls back refusals.
         var restored = before.Maximized ? before.Placement.Normal.Pixels : before.Visible;
         var minimum = CombineMinimum(target, system, detected, restored);
         if (minimum is null) return new(null, "Windows could not determine a safe minimum size for this window.");
         if (minimum.MinimumWidth > before.Display.Work.Width || minimum.MinimumHeight > before.Display.Work.Height)
             return new(null, "This window's supported minimum size does not fit the display's usable area.");
-        return new(new(target, before.Display, minimum, detected is null, before.Visible, before.Maximized));
+        return new(new(target, before.Display, minimum, detected is null || detected.IsEstimated, before.Visible, before.Maximized));
     }
 
     internal static PlacementConstraint? CombineMinimum(WindowTarget target, PlacementConstraint? system,
@@ -44,10 +43,9 @@ internal static class RecursiveGridPlacement
         if (!Valid(system)) return null;
         if (detected is not null && (!Valid(detected) || detected.Target != target)) detected = null;
         if (system!.Target != target) return null;
-        int width = detected?.MinimumWidth ?? restored.Width;
-        int height = detected?.MinimumHeight ?? restored.Height;
-        if (width is <= 0 or > 32768 || height is <= 0 or > 32768) return null;
-        return new(target, Math.Max(system.MinimumWidth, width), Math.Max(system.MinimumHeight, height));
+        // An app may explicitly support less than the default tracking metrics.
+        // Do not replace its answer with the system default or its current size.
+        return detected ?? system with { IsEstimated = true };
     }
 
     internal static async Task<PlacementResult> PlaceAsync(WindowService service, RecursiveGridPreflight preflight, PixelRect bounds)
