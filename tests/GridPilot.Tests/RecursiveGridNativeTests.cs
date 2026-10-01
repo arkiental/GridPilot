@@ -14,18 +14,18 @@ internal static partial class Program
         Assert(RecursiveGridPlacement.CombineMinimum(target, system, new(target, 680, 420), current) is
             { MinimumWidth: 680, MinimumHeight: 420 }, "reported tracking limits use the supported minimum rather than the larger current frame");
         Assert(RecursiveGridPlacement.CombineMinimum(target, system, new(target, 80, 50), current) is
-            { MinimumWidth: 160, MinimumHeight: 100 }, "system tracking limits remain a floor when an application reports smaller limits");
+            { MinimumWidth: 80, MinimumHeight: 50, IsEstimated: false }, "explicit app tracking limits may be smaller than system defaults");
         Assert(RecursiveGridPlacement.CombineMinimum(target, system, null, current) is
-            { MinimumWidth: 760, MinimumHeight: 540 }, "unavailable tracking limits conservatively retain the current restored frame");
+            { MinimumWidth: 160, MinimumHeight: 100, IsEstimated: true }, "unavailable limits use a labeled system estimate rather than current size");
         Assert(RecursiveGridPlacement.CombineMinimum(target, system, null, new(0, 0, 100, 90)) is
-            { MinimumWidth: 160, MinimumHeight: 100 }, "fallback frame also respects the system tracking floor");
+            { MinimumWidth: 160, MinimumHeight: 100, IsEstimated: true }, "a smaller current frame does not masquerade as a reported minimum");
         Assert(RecursiveGridPlacement.CombineMinimum(target, system, new(target with { ProcessId = 3 }, 10, 10), current) is
-            { MinimumWidth: 760, MinimumHeight: 540 }, "wrong target identity cannot supply permissive tracking limits");
+            { MinimumWidth: 160, MinimumHeight: 100, IsEstimated: true }, "wrong target identity cannot supply permissive tracking limits");
         Assert(RecursiveGridPlacement.CombineMinimum(target, system, new(target, 0, 100), current) is
-            { MinimumWidth: 760, MinimumHeight: 540 }, "malformed tracking limits use the conservative fallback");
+            { MinimumWidth: 160, MinimumHeight: 100, IsEstimated: true }, "malformed tracking limits use the labeled system estimate");
         Assert(RecursiveGridPlacement.CombineMinimum(target, null, new(target, 680, 420), current) is null &&
-            RecursiveGridPlacement.CombineMinimum(target, system, null, new(0, 0, 40000, 300)) is null,
-            "invalid system metrics or unreasonable fallback frames cannot produce a valid minimum");
+            RecursiveGridPlacement.CombineMinimum(target, system, null, new(0, 0, 40000, 300)) is { MinimumWidth: 160, MinimumHeight: 100, IsEstimated: true },
+            "invalid system metrics are rejected; current frame dimensions do not determine minimums");
         Assert(RecursiveGridPlacement.CombineMinimum(target, system, new(target, 300, 200), new(0, 0, 0, 0)) is
             { MinimumWidth: 300, MinimumHeight: 200 }, "successful detection does not require a fallback frame");
     }

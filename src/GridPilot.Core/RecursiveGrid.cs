@@ -109,7 +109,7 @@ public sealed class RecursiveGrid
         for (int index = leaves.Count - 1; index >= 0; index--)
         {
             var cell = leaves[index];
-            if (!CanSubdivide(cell)) continue;
+            if (cell.Depth >= MaxDepth || cell.Bounds.Width / 2 < MinimumWidth || cell.Bounds.Height / 2 < MinimumHeight) continue;
             leaves.RemoveAt(index);
             leaves.InsertRange(index, Children(cell));
             changes.Add((cell, index));
