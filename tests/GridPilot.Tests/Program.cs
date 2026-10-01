@@ -57,6 +57,8 @@ internal static partial class Program
                     try
                     {
                         if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
+                        else if (args.Contains("--recursive-grid")) await RecursiveGridNativeTests();
+                        else if (args.Contains("--recursive-grid-native")) await RecursiveGridMinimumNativeTests();
                         else if (args.Contains("--draw")) await DrawPlacementNativeTests();
                         else if (args.Contains("--integration")) await IntegrationNativeTests();
                         else if (args.Contains("--shortcuts")) await ShortcutEditorTests();
@@ -84,6 +86,8 @@ internal static partial class Program
     }
     private static void CoreTests()
     {
+        RecursiveGridTests();
+        RecursiveGridMinimumPolicyTests();
         ReferenceCropTests();
         DrawPlacementTests();
         IntegrationSettingsTests();
