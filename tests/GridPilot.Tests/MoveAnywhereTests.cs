@@ -63,13 +63,13 @@ internal static partial class Program
         using var fixture = StartFixture();
         var handle = await WaitForFixture(fixture);
         var target = WindowService.CaptureMoveTarget(handle);
-        Assert(target is not null, "normal independent fixture eligible for moving");
         var windows = new WindowService();
         var errors = new List<string>(); bool allowed = true;
         using var mover = new MoveAnywhereService(System.Windows.Threading.Dispatcher.CurrentDispatcher, windows,
             () => allowed, () => { }, errors.Add, installHooks: false);
         try
         {
+            Assert(target is not null, "normal independent fixture eligible for moving (requires a desktop that permits native target/process access)");
             var initial = WindowService.VisibleBounds(handle);
             int x = initial.Left + initial.Width / 2, y = initial.Top + initial.Height / 2;
             bool Mouse(int message, int px, int py, uint modifiers = 3, uint flags = 0) => mover.ProcessMouse(message, px, py, flags, modifiers, () => handle);

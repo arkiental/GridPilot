@@ -12,6 +12,8 @@ The `--shortcuts` suite passed **8,267 assertions**, including real settings sav
 
 Physical mouse/keyboard interception, actual mixed-DPI/multi-monitor transitions, elevated/protected target refusal on real applications, accessibility input, RDP and representative browser/game behavior remain manual checks. The feature deliberately leaves administrator/protected windows alone and never raises privileges. Independent review identified rapid-start reservation and target-close cleanup issues; both were corrected and regression cases added.
 
+Preview.5 release-time recheck on 12 October: the solution build passed with zero warnings/errors and the embedded core checks passed. The native rerun could not obtain an eligible fixture target in the current restricted execution session; an elevated run was also correctly rejected by the feature's administrator-window exclusion. The 8,315 focused assertions above are the earlier completed feature validation, not a claim that this release-time native rerun passed. Test fixture cleanup now covers eligibility failures as well.
+
 ## Transparent preview and drag selection, 1 October (issue #53)
 
 The Release solution build passed with warnings as errors (zero warnings/errors). Local test suites and native automated assertion harnesses were **skipped at the owner's explicit request**. Previous assertion totals below belong to earlier releases and do not validate this follow-up. Existing GitHub build/core-check and release workflows are unchanged; their results are reported separately on the PR/release.
