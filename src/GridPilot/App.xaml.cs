@@ -319,7 +319,9 @@ public partial class App : Application
     private async Task PlaceAsync(WindowTarget target, string device, Region region, bool ownsPendingRequest = false)
     {
         var owner = panel;
-        var result = await Placements.RunAsync(owner, target, () => windows.PlaceAsync(target, device, region, settings.Gap), ownsPendingRequest);
+        var result = await Placements.RunAsync(owner, target, () => owner is null
+            ? windows.PlaceAsync(target, device, region, settings.Gap)
+            : windows.PlaceGridAsync(target, device, region, settings.Gap), ownsPendingRequest);
         if (result.Success)
         {
             lastRegion = region;

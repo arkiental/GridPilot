@@ -44,10 +44,11 @@
     </Border>
    </StackPanel>
    <Grid Grid.Row="1">
-    <local:SelectionGrid x:Name="GridControl" AutomationProperties.Name="Desktop placement preview" ToolTip="Drag to resize overlapping windows into remaining cells. Drag an orange divider to resize neighboring windows. Alt-drag swaps exact sizes; wheel chooses among overlapping destinations. Ctrl-click selects a window; repeat to cycle overlaps. Ctrl+Shift-click cycles backward. Red is the selected window; orange is its destination."/>
+    <local:SelectionGrid x:Name="GridControl" AutomationProperties.Name="Desktop placement preview" ToolTip="Drag to place the selected window, including over other apps. Enable Reflow windows to move overlapping windows into remaining cells. Alt-drag swaps exact sizes. Ctrl-click selects a window; Ctrl-drag still places it. Red is the selected window; orange is its destination."/>
     <Canvas x:Name="FocusDividerCanvas" SizeChanged="FocusDividerCanvasSizeChanged"/>
    </Grid>
    <StackPanel Grid.Row="2">
+   <CheckBox x:Name="ReflowWindows" Content="Reflow windows" Margin="8,6,8,0" FontSize="11" Checked="ReflowChanged" Unchecked="ReflowChanged" ToolTip="Also move overlapping windows into remaining grid space. Off: place only the selected window." AutomationProperties.Name="Reflow overlapping windows"/>
    <WrapPanel x:Name="FocusDividerControls" IsEnabled="False" Margin="8,4" VerticalAlignment="Center">
     <TextBlock Text="Divider px" VerticalAlignment="Center"/>
     <TextBox x:Name="FocusDividerPosition" Width="76" Margin="6,0" AutomationProperties.Name="Divider position in physical pixels"/>

@@ -232,7 +232,7 @@ public partial class GridPanel : Window
         if (closing || placementPending || MonitorPicker.SelectedItem is not DisplayMonitor monitor) return;
         FocusDividerCanvas.Visibility = Visibility.Hidden;
         ClearFreeSpace(); ClearOverlap();
-        var plan = BuildReflow(monitor, region);
+        var plan = ReflowWindows.IsChecked == true ? BuildReflow(monitor, region) : BuildSinglePlacement(monitor, region);
         ShowInteractionPlan(monitor, plan);
     }
     internal void Commit(Region region)
@@ -241,9 +241,16 @@ public partial class GridPanel : Window
         FocusDividerCanvas.Visibility = Visibility.Hidden;
         ClearFreeSpace();
         PendingPlacementRegion = region;
-        var plan = BuildReflow(monitor, region);
+        var plan = ReflowWindows.IsChecked == true ? BuildReflow(monitor, region) : BuildSinglePlacement(monitor, region);
         ShowInteractionPlan(monitor, plan);
-        if (plan.Success) SubmitPlan(monitor);
+        if (!plan.Success) return;
+        if (ReflowWindows.IsChecked == true) SubmitPlan(monitor);
+        else
+        {
+            BeginPlacement();
+            SelectionLabel.Text = "Placing selected window…";
+            PlacementRequested?.Invoke(target, region, monitor.Device);
+        }
     }
     private void MonitorChanged(object sender, SelectionChangedEventArgs e)
     {
