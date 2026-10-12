@@ -20,6 +20,18 @@ On first launch, review **Settings** and click **Save settings**. GridPilot stay
 
 ## Arrange a window
 
+### Move a window by dragging anywhere
+
+Enable **Settings > General > Move windows by dragging anywhere**, choose the modifiers, and save. This is off by default, including after upgrading older settings. The recommended default is **Ctrl + Alt**; Ctrl, Alt, Ctrl + Shift, Alt + Shift and Ctrl + Alt + Shift are also available.
+
+Hold exactly the chosen modifiers before pressing the left mouse button anywhere inside a normal resizable application window. Drag to move it; release the mouse while still holding the modifiers to keep its new position. **Escape** or releasing a required modifier cancels and restores the original frame. **Undo last placement** restores a completed move. A click without movement makes no placement. Ordinary clicks and drags pass through when disabled, paused, using a different modifier combination, or targeting an excluded window.
+
+The gesture pauses while Focus, Settings, Draw placement, Recursive grid, Auto Arrange or Scenes is open. Maximized windows stay under normal Windows input handling; GridPilot does not restore or move them with this gesture. Fixed-size, borderless/fullscreen, owned dialog, tool, desktop/taskbar, minimized, hidden, unresponsive, protected and administrator windows are excluded. GridPilot's own windows are excluded. There is no elevation prompt or privilege change, and injected input is ignored by the gesture listener.
+
+Movement uses physical pointer coordinates and keeps the grabbed point relative to the window when an application's DPI handler changes its size across displays. Windows may still apply its own DPI resizing. Frames can straddle monitors, with a reachable strip of the title bar kept within the destination work area. Display changes and starting another GridPilot interaction cancel an active move. Applications that refuse movement are restored; failed restoration retains Undo for recovery.
+
+The focused regression command is `dotnet run --project tests/GridPilot.Tests -c Release --no-build -- --move-anywhere`. It uses disposable native windows and the production input handlers without injecting mouse or keyboard input into the user's desktop.
+
 ### Draw the window directly on the desktop
 
 Use **Draw placement** to choose an exact position and size with one drag:

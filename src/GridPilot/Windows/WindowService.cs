@@ -10,7 +10,7 @@ public sealed record PlacementConstraint(WindowTarget Target, int MinimumWidth, 
 }
 public sealed record PlacementResult(bool Success, string? Message = null, PlacementConstraint? Constraint = null);
 
-public sealed class WindowService
+public sealed partial class WindowService
 {
     private readonly Func<IReadOnlyList<PreviewWindowEntry>> captureCatalog;
     private readonly Func<IReadOnlyList<PreviewWindowEntry>> captureOccupancy;
