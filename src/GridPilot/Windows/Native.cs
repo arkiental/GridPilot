@@ -31,6 +31,18 @@ internal static class Native
     }
     internal delegate bool MonitorCallback(nint monitor, nint dc, ref Rect rect, nint data);
     internal delegate void WinEventCallback(nint hook, uint eventType, nint hwnd, int objectId, int childId, uint threadId, uint time);
+    internal delegate nint InputHookCallback(int code, nint message, nint data);
+    [StructLayout(LayoutKind.Sequential)] internal struct MouseHookData
+    { public Point Point; public uint MouseData, Flags, Time; public nuint ExtraInfo; }
+    [StructLayout(LayoutKind.Sequential)] internal struct KeyboardHookData
+    { public uint Key, ScanCode, Flags, Time; public nuint ExtraInfo; }
+    [DllImport("user32.dll", SetLastError = true)] internal static extern nint SetWindowsHookExW(int kind, InputHookCallback callback, nint module, uint thread);
+    [DllImport("user32.dll")] internal static extern nint CallNextHookEx(nint hook, int code, nint message, nint data);
+    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool UnhookWindowsHookEx(nint hook);
+    [DllImport("user32.dll")] internal static extern short GetAsyncKeyState(int key);
+    [DllImport("user32.dll")] internal static extern nint WindowFromPoint(Point point);
+    [DllImport("user32.dll")] internal static extern nint GetWindow(nint window, uint command);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] internal static extern nint GetModuleHandle(string? name);
 
     [DllImport("user32.dll")] internal static extern nint GetForegroundWindow();
     [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] internal static extern bool SetForegroundWindow(nint window);

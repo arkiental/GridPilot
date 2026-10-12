@@ -14,6 +14,9 @@ public partial class App : Application
     private EventWaitHandle? showEvent;
     private RegisteredWaitHandle? showWait;
     private HotkeyService? hotkeys;
+    private MoveAnywhereService? moveAnywhere;
+    private bool MoveAnywhereAvailable() => !exiting && !paused && panel is null && settingsWindow is null &&
+        arrangeWindow is null && scenesWindow is null && drawSession is null && recursiveSession is null && !openingRecursiveGrid;
     private Forms.NotifyIcon? tray;
     private System.Drawing.Icon? trayIcon;
     private Forms.ToolStripMenuItem? pauseItem, undoItem, startupItem;
@@ -52,10 +55,12 @@ public partial class App : Application
         var loaded = store.Load(); settings = loaded.Settings;
         Theme.Apply(settings.Theme);
         hotkeys = new HotkeyService();
+        moveAnywhere = new MoveAnywhereService(Dispatcher, windows, MoveAnywhereAvailable, UpdateTray, Notify);
         CreateTray();
-        hotkeys.DisplayChanged += () => { Diagnostics.Write("Display changed; dismissing grid."); drawSession?.Cancel(false); recursiveSession?.Invalidate(); panel?.Dismiss(true); };
-        hotkeys.PreferencesChanged += () => { Diagnostics.Write("Preferences changed; dismissing grid."); drawSession?.Cancel(false); recursiveSession?.Invalidate(); panel?.Dismiss(true); Theme.Apply(settings.Theme); };
+        hotkeys.DisplayChanged += () => { Diagnostics.Write("Display changed; dismissing grid."); moveAnywhere.Cancel(); drawSession?.Cancel(false); recursiveSession?.Invalidate(); panel?.Dismiss(true); };
+        hotkeys.PreferencesChanged += () => { Diagnostics.Write("Preferences changed; dismissing grid."); moveAnywhere.Cancel(); drawSession?.Cancel(false); recursiveSession?.Invalidate(); panel?.Dismiss(true); Theme.Apply(settings.Theme); };
         if (!hotkeys.TryApply(Actions(settings), out var shortcutError)) paused = true;
+        var moveError = moveAnywhere.Configure(settings.MoveAnywhere);
         UpdateTray();
         foregroundCallback = (_, _, hwnd, _, _, _, _) =>
         {
@@ -66,8 +71,8 @@ public partial class App : Application
         lastTarget = WindowService.CaptureForeground(out _);
         externalForeground.Capture(Native.GetForegroundWindow());
         DispatcherUnhandledException += OnUnexpectedError;
-        if (!e.Args.Contains("--background") || loaded.Warning is not null || shortcutError is not null)
-            ShowSettings(loaded.Warning ?? shortcutError);
+        if (!e.Args.Contains("--background") || loaded.Warning is not null || shortcutError is not null || moveError is not null)
+            ShowSettings(loaded.Warning ?? shortcutError ?? moveError);
     }
 
     private List<HotkeyAction> Actions(AppSettings config)
@@ -381,6 +386,12 @@ public partial class App : Application
     {
         if (updated.Validate() is { } invalid) return invalid;
         if (!hotkeys!.TryApply(Actions(updated), out var error)) return error;
+        if (moveAnywhere!.Configure(updated.MoveAnywhere) is { } moveError)
+        {
+            hotkeys.TryApply(paused ? Array.Empty<HotkeyAction>() : Actions(settings), out _);
+            moveAnywhere.Configure(settings.MoveAnywhere);
+            return moveError;
+        }
         try
         {
             if (updated.StartAtLogin != settings.StartAtLogin) StartupService.SetEnabled(updated.StartAtLogin);
@@ -389,6 +400,7 @@ public partial class App : Application
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
         {
             hotkeys.TryApply(paused ? Array.Empty<HotkeyAction>() : Actions(settings), out _);
+            moveAnywhere.Configure(settings.MoveAnywhere);
             try { if (updated.StartAtLogin != settings.StartAtLogin) StartupService.SetEnabled(settings.StartAtLogin); } catch (Exception rollback) when (rollback is IOException or UnauthorizedAccessException or System.Security.SecurityException) { Log(rollback); }
             return "Settings could not be saved: " + ex.Message;
         }
@@ -398,6 +410,7 @@ public partial class App : Application
     }
     private void TogglePause()
     {
+        moveAnywhere?.Cancel();
         if (openingRecursiveGrid || recursiveSession?.IsCommitting == true) return;
         drawSession?.Cancel(false);
         recursiveSession?.Cancel(true);
@@ -435,7 +448,7 @@ public partial class App : Application
             if (error is not null) Notify(error); UpdateTray();
         })); menu.Items.Add(startupItem);
         menu.Items.Add(new Forms.ToolStripSeparator());
-        menu.Items.Add("Quit GridPilot", null, (_, _) => Dispatcher.BeginInvoke(() => Shutdown()));
+        menu.Items.Add("Quit GridPilot", null, (_, _) => Dispatcher.BeginInvoke(async () => { if (moveAnywhere is not null) await moveAnywhere.CancelAsync(); Shutdown(); }));
         menu.Opening += (_, _) => UpdateTray(); tray.ContextMenuStrip = menu;
         tray.DoubleClick += (_, _) => Dispatcher.BeginInvoke(() => TogglePanel(true));
         tray.BalloonTipClicked += (_, _) => Dispatcher.BeginInvoke(ShowSettings);
@@ -468,6 +481,7 @@ public partial class App : Application
     }
     private void OnUnexpectedError(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
+        moveAnywhere?.Cancel();
         Log(e.Exception); drawSession?.Cancel(false); recursiveSession?.Cancel(false); panel?.Dismiss(false); Notify("GridPilot could not complete that action. Details are in the local error log."); e.Handled = true;
     }
     private static void Log(Exception exception)
@@ -483,6 +497,7 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         exiting = true;
+        moveAnywhere?.Dispose();
         drawSession?.Cancel(false);
         recursiveSession?.Cancel(true);
         referenceRail?.Shutdown();

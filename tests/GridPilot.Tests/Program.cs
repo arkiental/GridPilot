@@ -56,7 +56,8 @@ internal static partial class Program
                 {
                     try
                     {
-                        if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
+                        if (args.Contains("--move-anywhere")) await MoveAnywhereNativeTests();
+                        else if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
                         else if (args.Contains("--recursive-grid")) await RecursiveGridNativeTests();
                         else if (args.Contains("--recursive-grid-native")) await RecursiveGridMinimumNativeTests();
                         else if (args.Contains("--draw")) await DrawPlacementNativeTests();
@@ -86,6 +87,7 @@ internal static partial class Program
     }
     private static void CoreTests()
     {
+        MoveAnywhereTests();
         RecursiveGridTests();
         RecursiveGridMinimumPolicyTests();
         ReferenceCropTests();

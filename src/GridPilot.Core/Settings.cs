@@ -41,6 +41,8 @@ public sealed class AppSettings
     private DrawSnappingSettings drawSnapping = new();
     public DrawSnappingSettings DrawSnapping { get => drawSnapping; set => drawSnapping = value ?? new(); }
     public Shortcut? Undo { get; set; }
+    private MoveAnywhereSettings moveAnywhere = new();
+    public MoveAnywhereSettings MoveAnywhere { get => moveAnywhere; set => moveAnywhere = value ?? new(); }
     public bool StartAtLogin { get; set; }
     public string Theme { get; set; } = "Dark";
     public bool SmokedGlass { get; set; } = true;
@@ -89,6 +91,7 @@ public sealed class AppSettings
         if (Activation is null) return "An activation shortcut is required.";
         if (Activation.Validate() is { } error) return error;
         if (Undo?.Validate() is { } undoError) return undoError;
+        if (MoveAnywhere.Validate() is { } moveError) return moveError;
         if (DrawPlacement?.Validate() is { } drawError) return drawError;
         if (RecursiveGridPlacement?.Validate() is { } recursiveError) return recursiveError;
         if (RecursiveGridMaxDepth is < 1 or > 8) return "Recursive grid depth must be between 1 and 8.";
