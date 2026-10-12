@@ -56,7 +56,8 @@ internal static partial class Program
                 {
                     try
                     {
-                        if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
+                        if (args.Contains("--grid-placement")) await GridPlacementNativeTests();
+                        else if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
                         else if (args.Contains("--recursive-grid")) await RecursiveGridNativeTests();
                         else if (args.Contains("--recursive-grid-native")) await RecursiveGridMinimumNativeTests();
                         else if (args.Contains("--draw")) await DrawPlacementNativeTests();
@@ -791,6 +792,22 @@ internal static partial class Program
                     // WINDOWPOS.x/y follow two pointer-sized HWND fields. Only our own fixture message is edited.
                     System.Runtime.InteropServices.Marshal.WriteInt32(lParam, IntPtr.Size * 2, original.Left);
                     System.Runtime.InteropServices.Marshal.WriteInt32(lParam, IntPtr.Size * 2 + 4, original.Top);
+                }
+                return 0;
+            });
+        };
+        if (args.Contains("--dynamic-minimum")) window.Loaded += (_, _) =>
+        {
+            var handle = new WindowInteropHelper(window).Handle;
+            HwndSource.FromHwnd(handle)!.AddHook((nint hwnd, int message, nint wParam, nint lParam, ref bool handled) =>
+            {
+                // Deliberately enforce a larger limit than WM_GETMINMAXINFO reports.
+                if (message == 0x46 && (System.Runtime.InteropServices.Marshal.ReadInt32(lParam, IntPtr.Size * 2 + 16) & 1) == 0)
+                {
+                    int width = System.Runtime.InteropServices.Marshal.ReadInt32(lParam, IntPtr.Size * 2 + 8);
+                    int height = System.Runtime.InteropServices.Marshal.ReadInt32(lParam, IntPtr.Size * 2 + 12);
+                    System.Runtime.InteropServices.Marshal.WriteInt32(lParam, IntPtr.Size * 2 + 8, Math.Max(width, 680));
+                    System.Runtime.InteropServices.Marshal.WriteInt32(lParam, IntPtr.Size * 2 + 12, Math.Max(height, 420));
                 }
                 return 0;
             });

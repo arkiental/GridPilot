@@ -48,6 +48,20 @@ public partial class GridPanel
         GridControl.Interrupted += () => { pendingPlacements.Clear(); swapSource = null; GridControl.PlanFrames = []; GridControl.InvalidateVisual(); RebuildFocusDividers(); };
     }
     private static bool Same(WindowTarget a, WindowTarget b) => a.Handle == b.Handle && a.ProcessId == b.ProcessId;
+    private ArrangementPlan BuildSinglePlacement(DisplayMonitor monitor, Region region)
+    {
+        var source = capturedWindows.FirstOrDefault(e => Same(e.Target, target));
+        if (source is null) return new([], "The selected window is missing from the preview. Reopen the grid.");
+        if (source.UnavailableReason is { } reason) return new([], reason);
+        try { return new([new(IdentityKey(target), PlacementMath.Calculate(monitor.Work, region, settings.Gap, monitor.Dpi))], null); }
+        catch (ArgumentException ex) { return new([], ex.Message); }
+    }
+    private void ReflowChanged(object sender, RoutedEventArgs e)
+    {
+        if (!ready || placementPending) return;
+        cachedSelection = null; cachedPlan = null;
+        if (GridControl.Selection is { } selection) ShowPreview(selection);
+    }
     private static string IdentityKey(WindowTarget t) => $"{t.Handle}:{t.ProcessId}";
     private ReflowWindow Geometry(PreviewWindowEntry entry)
     {
@@ -77,7 +91,7 @@ public partial class GridPanel
         }
         GridControl.PlanFrames = pendingPlacements.Select(p => (p.Bounds, p.Target.Title)).ToArray();
         GridControl.InvalidateVisual();
-        SelectionLabel.Text = $"{pendingPlacements.Count} window(s) in orange · Release to apply · Undo restores the group";
+        SelectionLabel.Text = pendingPlacements.Count == 1 ? "Release to place selected window · Undo restores it" : $"{pendingPlacements.Count} windows in orange · Release to apply · Undo restores the group";
         SelectionLabel.ToolTip = string.Join("\n", pendingPlacements.Select(p => $"{p.Target.Title}: {p.Bounds.Width} × {p.Bounds.Height} px"));
     }
     private void StartSwap(int x, int y)
@@ -126,7 +140,7 @@ public partial class GridPanel
     }
     internal void BeginPlacement()
     {
-        placementPending = true; GridControl.IsEnabled = false; preview.Hide();
+        placementPending = true; GridControl.IsEnabled = false; ReflowWindows.IsEnabled = false; preview.Hide();
         FocusDividerCanvas.Visibility = Visibility.Hidden;
     }
     private void SubmitPlan(DisplayMonitor monitor)
@@ -142,7 +156,7 @@ public partial class GridPanel
     {
         if (closing) return;
         ClearFreeSpace();
-        placementPending = false; GridControl.IsEnabled = true;
+        placementPending = false; GridControl.IsEnabled = true; ReflowWindows.IsEnabled = true;
         cachedSelection = null; cachedPlan = null;
         pendingPlacements.Clear(); GridControl.Reset();
         UndoButton.IsEnabled = FooterUndoButton.IsEnabled = canUndo;

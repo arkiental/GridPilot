@@ -198,15 +198,27 @@ public sealed class SelectionGrid : FrameworkElement
             else { var screen = Screen(e.GetPosition(this)); SwapMoved?.Invoke(screen.X, screen.Y); }
             e.Handled = true; return;
         }
-        if (picking) { if (e.LeftButton != MouseButtonState.Pressed) CancelDrag(); e.Handled = true; return; }
+        if (picking)
+        {
+            if (e.LeftButton != MouseButtonState.Pressed) CancelDrag();
+            else ContinuePickDrag(e.GetPosition(this));
+            e.Handled = true; return;
+        }
         if (!dragging) return;
         if (e.LeftButton != MouseButtonState.Pressed) { CancelDrag(); return; }
-        (cursorColumn, cursorRow) = Cell(e.GetPosition(this));
-        UpdateSelection();
+        var cell = Cell(e.GetPosition(this));
+        if (cell != (cursorColumn, cursorRow))
+        {
+            (cursorColumn, cursorRow) = cell;
+            UpdateSelection();
+        }
         e.Handled = true;
     }
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
+        // Ctrl belongs to the opening shortcut too. A Ctrl-click selects a
+        // window, but dragging must still place it, including coalesced moves.
+        if (picking) ContinuePickDrag(e.GetPosition(this));
         if (swapping)
         {
             bool swapInside = WorkRectangle.Contains(e.GetPosition(this));
@@ -234,6 +246,15 @@ public sealed class SelectionGrid : FrameworkElement
         if (inside && selection is { } region && ApplyOnRelease) Committed?.Invoke(region);
         else if (!inside) { Reset(); Interrupted?.Invoke(); }
         e.Handled = true;
+    }
+    internal void ContinuePickDrag(Point point)
+    {
+        if (!picking || Math.Abs(point.X - pickOrigin.X) <= SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(point.Y - pickOrigin.Y) <= SystemParameters.MinimumVerticalDragDistance) return;
+        picking = false; dragging = true; keyboardStarted = true;
+        (anchorColumn, anchorRow) = Cell(pickOrigin);
+        (cursorColumn, cursorRow) = Cell(point);
+        UpdateSelection();
     }
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {

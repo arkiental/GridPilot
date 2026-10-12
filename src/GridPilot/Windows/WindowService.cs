@@ -196,6 +196,32 @@ public sealed class WindowService
         finally { Busy = false; }
     }
 
+    // Focus places one selected window by default. Other desktop windows may
+    // remain underneath; guarded group reflow is a separate explicit action.
+    internal async Task<PlacementResult> PlaceGridAsync(WindowTarget target, string device, Region region, double gap)
+    {
+        var monitor = MonitorService.GetAll().FirstOrDefault(m => m.Device == device);
+        if (monitor is null) return new(false, "The selected display was disconnected. Open the grid again.");
+        if (Busy || HasUncertainRequests) return new(false, "A previous placement is still pending. Wait or retry Undo.");
+        var requested = PlacementMath.Calculate(monitor.Work, region, gap, monitor.Dpi);
+        var source = MonitorService.ForWindow(target.Handle, MonitorService.GetAll());
+        PlacementConstraint? minimum;
+        Busy = true;
+        try { minimum = await WindowMinimums.ReadAsync(target, source); }
+        finally { Busy = false; }
+        var destination = minimum is null ? requested : PlacementMath.AccommodateMinimum(requested,
+            PlacementMath.Calculate(monitor.Work, Region.Full, gap, monitor.Dpi),
+            (int)Math.Ceiling((double)minimum.MinimumWidth * monitor.Dpi / source.Dpi),
+            (int)Math.Ceiling((double)minimum.MinimumHeight * monitor.Dpi / source.Dpi));
+        var result = await ArrangeAsync(monitor, [(target, destination)],
+            minimumWorkArea: PlacementMath.Calculate(monitor.Work, Region.Full, gap, monitor.Dpi));
+        if (result.Success && IsSameWindow(target)) Native.SetForegroundWindow(target.Handle);
+        if (result.Success) destination = VisibleBounds(target.Handle);
+        return result.Success ? result with { Message = destination.Near(requested)
+            ? "Placed. Undo restores the selected window."
+            : $"Placed at this application's minimum size ({destination.Width} × {destination.Height} px). Undo is available." } : result;
+    }
+
     private static async Task<bool> RestoreAsync(Snapshot snapshot)
     {
         if (!IsSameWindow(snapshot.Target)) return false;
@@ -284,12 +310,17 @@ public sealed class WindowService
 
     internal async Task<PlacementResult> ArrangeAsync(DisplayMonitor expected, IReadOnlyList<(WindowTarget Target, PixelRect Bounds)> placements,
         IReadOnlyList<(WindowTarget Target, PixelRect Bounds)>? expectedOriginals = null, Action? verify = null, Action? verifyResult = null,
-        IReadOnlyList<DisplayMonitor>? sceneDisplays = null, bool allowSceneOverlap = false)
+        IReadOnlyList<DisplayMonitor>? sceneDisplays = null, bool allowSceneOverlap = false, PixelRect? minimumWorkArea = null)
     {
         if (Busy) return new(false, "A placement is already in progress.");
         if (HasUncertainRequests) return new(false, "A previous native request is still unverified. Retry Undo before another placement.");
         if (placements.Count is < 1 or > 32 || placements.Select(p => (p.Target.Handle, p.Target.ProcessId)).Distinct().Count() != placements.Count)
             return new(false, "Select 1–32 distinct windows.");
+        // Only the ordinary one-window grid operation may grow to an actual
+        // application minimum. Group, free-space and exact drawing keep their guards.
+        bool flexibleGrid = minimumWorkArea is not null && placements.Count == 1 && expectedOriginals is null && verify is null && verifyResult is null;
+        var appliedPlacements = placements.ToArray();
+        placements = appliedPlacements;
         Busy = true;
         var snapshots = new List<Snapshot>();
         var changed = new List<Snapshot>();
@@ -358,7 +389,26 @@ public sealed class WindowService
                     for (int retry = 0; retry < 80 && IsSameWindow(p.Target) && Native.IsZoomed(p.Target.Handle); retry++) await Task.Delay(25);
                     if (!IsSameWindow(p.Target) || Native.IsZoomed(p.Target.Handle)) throw new InvalidOperationException($"{p.Target.Title} did not finish restoring from maximized mode.");
                 }
-                var response = await SettleExactAsync(p.Target, p.Bounds, CheckOccupancy);
+                if (flexibleGrid && SizeConstraint(p.Target, p.Bounds, VisibleBounds(p.Target.Handle)) is not null)
+                {
+                    // An unchanged minimum-sized original at the requested origin
+                    // is ambiguous with a queued request. A tiny same-size move
+                    // gives the actual resize a distinct starting frame.
+                    var current = VisibleBounds(p.Target.Handle);
+                    var probe = RecoveryProbes(current, expected.Work, current).FirstOrDefault();
+                    if (!probe.IsValid || !(await SettleExactAsync(p.Target, probe, CheckOccupancy, 2)).Accepted)
+                        throw new InvalidOperationException("The selected window did not respond to placement. Retry when the application responds.");
+                }
+                var response = await SettleExactAsync(p.Target, p.Bounds, CheckOccupancy, flexibleGrid ? 2 : 8, flexibleGrid);
+                if (flexibleGrid && !response.Accepted && response.OccupancyFailure is null &&
+                    response.RejectedBounds is { } actual && SizeConstraint(p.Target, p.Bounds, actual) is not null)
+                {
+                    // The changed, stable frame acknowledges the request. Grow
+                    // in place without rolling back first or replacing the Undo snapshot.
+                    p = (p.Target, PlacementMath.AccommodateMinimum(p.Bounds, minimumWorkArea!.Value, actual.Width, actual.Height));
+                    appliedPlacements[i] = p;
+                    response = await SettleExactAsync(p.Target, p.Bounds, CheckOccupancy, 2, true);
+                }
                 if (response.Accepted) uncertainRequests.Remove(snapshots[i]);
                 if (response.OccupancyFailure is { } conflict) throw conflict;
                 if (!response.Accepted)
@@ -404,11 +454,12 @@ public sealed class WindowService
 
     // Send once, then observe convergence. Repeated async requests can outlive the old
     // 600ms retry loop and arrive after rollback. One bounded correction handles DWM/DPI borders.
-    private static async Task<(bool Accepted, InvalidOperationException? OccupancyFailure, PixelRect? RejectedBounds)> SettleExactAsync(WindowTarget target, PixelRect bounds, Action checkOccupancy)
+    private static async Task<(bool Accepted, InvalidOperationException? OccupancyFailure, PixelRect? RejectedBounds)> SettleExactAsync(WindowTarget target, PixelRect bounds, Action checkOccupancy, int stablePolls = 8, bool learnMinimum = false)
     {
         InvalidOperationException? occupancyFailure = null;
         PixelRect? observed = null;
         int unchanged = 0;
+        PixelRect? initialBounds = IsSameWindow(target) ? VisibleBounds(target.Handle) : null;
         for (int correction = 0; correction < 2; correction++)
         {
             if (!IsSameWindow(target)) return (false, occupancyFailure, null);
@@ -430,8 +481,16 @@ public sealed class WindowService
                 var current = VisibleBounds(target.Handle);
                 unchanged = observed is { } previous && current.Near(previous) ? unchanged + 1 : 1;
                 observed = current;
-                if (current.Near(bounds)) { if (++stable >= 8) return (true, occupancyFailure, null); }
+                if (current.Near(bounds)) { if (++stable >= stablePolls) return (true, occupancyFailure, null); }
                 else stable = 0;
+                // Never mistake unchanged originals for an acknowledged async
+                // move. Correct frame/DPI insets once before learning a new minimum.
+                if (learnMinimum && unchanged >= 3 && initialBounds is { } initial && !current.Near(initial) &&
+                    SizeConstraint(target, bounds, current) is not null)
+                {
+                    if (correction == 1) return (false, occupancyFailure, current);
+                    break;
+                }
             }
             if (occupancyFailure is not null) break; // Do not add more queued requests after cancellation.
         }

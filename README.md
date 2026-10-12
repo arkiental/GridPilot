@@ -53,8 +53,10 @@ The picker covers the target monitor's usable work area and intercepts mouse inp
 1. Activate a resizable desktop application window.
 2. Press **Ctrl + Shift + Space** (configurable).
 3. Choose a destination display if needed.
-4. Drag across the screenshot grid in any direction. Orange outlines in the preview show the destination and any affected windows that will reflow.
+4. Drag across the screenshot grid in any direction. Orange marks the selected window's destination. Ordinary placement moves only that window, including over other apps. Enable **Reflow windows** to explicitly rearrange overlapping apps into remaining cells.
 5. Release inside the grid to apply. **Escape**, clicking outside, or losing input capture cancels. Releasing a drag outside the grid clears the selection without moving the window.
+
+Ctrl-click selects a different window; Ctrl-drag places the current selection, even when Ctrl is still held from the opening shortcut. Reported native minimums are checked before moving. A larger minimum discovered during a single-window move is accommodated on-screen without first snapping back; Undo keeps the original placement. Impossible or unresponsive placements still retain verified recovery. Reflow is off each time Focus opens; swaps and shared dividers remain explicit group actions.
 
 The initial target is captured before the panel opens. **Ctrl-click a window inside the preview** to select a different target without closing the panel. Its name, icon, and red glow update immediately, and every subsequent placement or preset acts on that selected window. Selecting never resizes anything. Escape closes the panel and focuses the selected application; committing also focuses it. Maximized windows restore on commit; undo can restore their maximized state.
 
