@@ -14,6 +14,10 @@ The Focus panel uses **Smoked Glass** in dark mode on compatible Windows 11 22H2
 
 ## Run
 
+Every push or merged update to `main` automatically builds, runs core tests, and publishes a GitHub Release with the Windows x64 ZIP and SHA-256 checksum. Automatic releases use `build-<commit SHA>` tags and leave the latest manually versioned release unchanged. Failed builds do not publish. Versioned `v*` releases remain supported.
+
+To start automatically with Windows, open **Settings**, enable **Launch at sign-in**, and choose **Save settings**, or toggle **Launch at sign-in** in the tray menu. It starts quietly in the tray for your Windows account, without administrator access. Install to a permanent folder before enabling this option; if you move the portable application, save settings from its new location to update the startup path.
+
 The self-contained release is in `artifacts/GridPilot-win-x64`. Run `GridPilot.exe`; no separate .NET installation is required. Keep the entire folder together. The ZIP contains the same application and an optional per-user installer.
 
 On first launch, review **Settings** and click **Save settings**. GridPilot stays in the system tray when settings close. Double-click its tray icon to open the grid; right-click for settings, undo, pause, sign-in startup, and quit. Running a second copy opens the existing instance's settings.

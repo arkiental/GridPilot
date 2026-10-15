@@ -385,7 +385,8 @@ public partial class App : Application
         if (!hotkeys!.TryApply(Actions(updated), out var error)) return error;
         try
         {
-            if (updated.StartAtLogin != settings.StartAtLogin) StartupService.SetEnabled(updated.StartAtLogin);
+            // Refresh the executable path even when the preference is unchanged (portable moves).
+            StartupService.SetEnabled(updated.StartAtLogin);
             store.Save(updated);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
