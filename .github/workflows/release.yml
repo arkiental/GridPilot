@@ -38,9 +38,10 @@ jobs:
         shell: pwsh
         run: |
           ./scripts/Publish.ps1
-          $hash = (Get-FileHash artifacts/GridPilot-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant()
-          Set-Content -LiteralPath artifacts/SHA256SUMS.txt -Value "$hash  GridPilot-win-x64.zip" -Encoding ascii
-          Write-Output "Release SHA256: $hash"
+          ./scripts/Build-Installer.ps1
+          $assets = @(Get-Item artifacts/GridPilot-win-x64.zip) + @(Get-ChildItem artifacts/installer/*Setup.exe)
+          $checksums = $assets | ForEach-Object { "$((Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant())  $($_.Name)" }
+          Set-Content -LiteralPath artifacts/SHA256SUMS.txt -Value $checksums -Encoding ascii
       - name: Publish release assets
         shell: pwsh
         env:
@@ -48,7 +49,8 @@ jobs:
         run: |
           $notes = "docs/releases/$env:GITHUB_REF_NAME.md"
           if (!(Test-Path -LiteralPath $notes)) { throw 'Release notes are missing.' }
-          $arguments = @('release', 'create', $env:GITHUB_REF_NAME, 'artifacts/GridPilot-win-x64.zip', 'artifacts/SHA256SUMS.txt', '--repo', $env:GITHUB_REPOSITORY, '--verify-tag', '--title', "GridPilot $env:GITHUB_REF_NAME", '--notes-file', $notes)
+          $installer = (Get-ChildItem artifacts/installer/*Setup.exe).FullName
+          $arguments = @('release', 'create', $env:GITHUB_REF_NAME, 'artifacts/GridPilot-win-x64.zip', $installer, 'artifacts/SHA256SUMS.txt', '--repo', $env:GITHUB_REPOSITORY, '--verify-tag', '--title', "GridPilot $env:GITHUB_REF_NAME", '--notes-file', $notes)
           if ($env:GITHUB_REF_NAME -match '-preview') { $arguments += '--prerelease' }
           gh @arguments
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed.' }

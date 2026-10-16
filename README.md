@@ -106,7 +106,7 @@ Clicking one cell proposes that rectangle through the same overlap-reflow rules 
 - Appearance: dark by default, with system and light options; system high-contrast colors are respected.
 - Launch at sign-in is optional and off by default. It starts quietly in the tray.
 
-Settings are local at `%LOCALAPPDATA%\GridPilot\settings.json`. Saves are atomic; a `.bak` copy is retained. A damaged primary file falls back to the backup or defaults and displays a recovery message. On the next save, the invalid primary is preserved as `.corrupt` without overwriting a good backup.
+Settings are kept in **Documents\GridPilot\settings.json**, using the actual Windows Documents folder (including redirected/OneDrive Documents). Existing LocalAppData settings are copied there on first launch if no Documents settings exist; originals and migration backups are preserved. Installation, upgrades and uninstall do not delete these settings. Saves are atomic; a `.bak` copy is retained. A damaged primary file falls back to the backup or defaults and displays a recovery message. On the next save, the invalid primary is preserved as `.corrupt` without overwriting a good backup.
 
 ## Compatibility
 
@@ -165,3 +165,7 @@ Open **Scenes** in the Focus panel or **Workspace scenes…** from the tray. Nam
 To restore, explicitly choose an open window for each saved place (the list shows title, PID and HWND), choose a destination display when a saved display is missing, then **Preview restore** and **Restore preview**. Every place starts skipped; multiple windows from one app are never guessed from their title or executable. Missing apps are identified and may be skipped or explicitly replaced. GridPilot never launches an app. Saved files contain app metadata and normalized rectangles, never HWND/PID.
 
 Scenes scale their captured visible rectangles to destination work areas; frames crossing work-area edges are fitted inside the selected display. A maximized source is saved as its visible rectangle and restored as a normal window, not a maximized-state flag. Overlapping saved places are supported; window stacking order, minimized state, documents and application content are not restored. Saved minimum/locked shape rules and available native minimum sizes are checked; fixed Auto arrange places are overridden by the explicitly selected scene geometry. Other open windows blocking a destination stop restoration. Native refusal or changed identity/display rolls back the group; one verified Undo restores all moved windows, including their previous maximized state. Refresh open windows after other desktop changes or after Undo.
+
+### Install and update
+
+Download **Setup.exe** from [GitHub Releases](https://github.com/arkiental/GridPilot/releases/latest). Quit GridPilot, then run Setup for either a new installation or an in-place upgrade. It reuses the installed folder and preserves all settings in Documents. Updates are manual; no background updater is installed. To package a future version, run scripts/Publish.ps1 followed by scripts/Build-Installer.ps1 with Inno Setup 6 installed. The installer version is read from the published executable; its stable AppId preserves upgrade detection.

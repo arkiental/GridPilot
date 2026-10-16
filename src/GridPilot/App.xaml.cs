@@ -48,7 +48,20 @@ public partial class App : Application
         showEvent = new EventWaitHandle(false, EventResetMode.AutoReset, identity + "-Show");
         if (!first) { showEvent.Set(); Shutdown(); return; }
         showWait = ThreadPool.RegisterWaitForSingleObject(showEvent, (_, _) => Dispatcher.BeginInvoke(ShowSettings), null, Timeout.Infinite, false);
-        store = new SettingsStore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GridPilot"));
+        try
+        {
+            var documents = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+            if (string.IsNullOrWhiteSpace(documents)) throw new IOException("Your Documents folder is unavailable.");
+            store = new SettingsStore(Path.Combine(documents, "GridPilot"));
+            store.MigrateFrom(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "GridPilot"));
+            Directory.CreateDirectory(Path.GetDirectoryName(store.FilePath)!);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            MessageBox.Show("GridPilot could not open or migrate your settings in Documents. No existing settings were replaced.\n\n" + ex.Message,
+                "GridPilot settings", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown(); return;
+        }
         var loaded = store.Load(); settings = loaded.Settings;
         Theme.Apply(settings.Theme);
         hotkeys = new HotkeyService();

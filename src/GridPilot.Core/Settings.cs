@@ -147,6 +147,38 @@ public sealed class AppSettings
 
 public sealed class SettingsStore(string directory)
 {
+    // Copy once, never move or delete the user's legacy settings. Existing
+    // Documents settings (including a recoverable backup) always take precedence.
+    public void MigrateFrom(string legacyDirectory)
+    {
+        if (File.Exists(FilePath) || File.Exists(FilePath + ".bak")) return;
+        var legacy = Path.Combine(legacyDirectory, "settings.json");
+        var candidates = new[] { legacy, legacy + ".bak" }.Where(File.Exists).ToArray();
+        if (candidates.Length == 0) return;
+        string? selected = null;
+        foreach (var candidate in candidates)
+        {
+            try
+            {
+                var parsed = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(candidate));
+                if (parsed is not null && parsed.Validate() is null) { selected = candidate; break; }
+            }
+            catch (JsonException) { }
+        }
+        if (selected is null) throw new IOException("Existing GridPilot settings could not be read. They have been left untouched in " + legacyDirectory);
+        Directory.CreateDirectory(Path.GetDirectoryName(FilePath)!);
+        var backupDirectory = Path.Combine(Path.GetDirectoryName(FilePath)!, "migration-backup");
+        Directory.CreateDirectory(backupDirectory);
+        foreach (var candidate in candidates)
+        {
+            var backup = Path.Combine(backupDirectory, Path.GetFileName(candidate));
+            if (!File.Exists(backup)) File.Copy(candidate, backup);
+        }
+        var temporary = FilePath + ".migrating";
+        File.Copy(selected, temporary, true);
+        File.Move(temporary, FilePath); // Never overwrite a concurrently created destination.
+    }
+
     public string FilePath { get; } = Path.Combine(directory, "settings.json");
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     public (AppSettings Settings, string? Warning) Load()

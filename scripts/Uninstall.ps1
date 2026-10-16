@@ -13,4 +13,4 @@ if ($startup -and $startup.Contains($resolvedDirectory)) { Remove-ItemProperty -
 $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'GridPilot.lnk'
 if (Test-Path -LiteralPath $shortcut) { Remove-Item -LiteralPath $shortcut }
 Remove-Item -LiteralPath $resolvedDirectory -Recurse -Force
-Write-Output 'GridPilot was uninstalled. Your settings remain in LocalAppData\GridPilot.'
+Write-Output 'GridPilot was uninstalled. Your settings remain in Documents\GridPilot (and any legacy LocalAppData\GridPilot backup).'
