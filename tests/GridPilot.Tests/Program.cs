@@ -57,6 +57,7 @@ internal static partial class Program
                     try
                     {
                         if (args.Contains("--grid-placement")) await GridPlacementNativeTests();
+                        else if (args.Contains("--grid-span")) await GridSpanNativeTests();
                         else if (args.Contains("--draw-benchmark")) await DrawPlacementBenchmark();
                         else if (args.Contains("--recursive-grid")) await RecursiveGridNativeTests();
                         else if (args.Contains("--recursive-grid-native")) await RecursiveGridMinimumNativeTests();
@@ -73,7 +74,7 @@ internal static partial class Program
                         else if (args.Contains("--arrangement")) await ArrangementNativeTests();
                         else if (args.Contains("--reference-rail")) await ReferenceRailNativeTests();
                         else if (args.Contains("--sidebar")) await SidebarNativeTests();
-                        else { await RecursiveGridNativeTests(); await RecursiveGridMinimumNativeTests(); await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); await IntegrationNativeTests(); }
+                        else { await RecursiveGridNativeTests(); await RecursiveGridMinimumNativeTests(); await GridSpanNativeTests(); await SceneNativeTests(); await ReferenceRailNativeTests(); await NativeTests(); await ElasticFixtureTests(); await PartialWorkspaceNativeTests(); await FreeSpaceNativeTests(); await PanelPlacementControllerNativeTests(); await ShortcutEditorTests(); await DrawPlacementNativeTests(); await IntegrationNativeTests(); }
                     }
                     catch (Exception ex) { failure = ex; }
                     finally { application.Shutdown(); }
@@ -92,6 +93,7 @@ internal static partial class Program
         ReferenceCropTests();
         DrawPlacementTests();
         IntegrationSettingsTests();
+        GridSpanTests();
         WindowMinimumTests();
         ArrangementTests();
         PartialWorkspaceTests();

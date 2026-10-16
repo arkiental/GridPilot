@@ -48,6 +48,17 @@ Activate a resizable desktop window and press **Ctrl + Alt + G**, or choose **Re
 
 The picker covers the target monitor's usable work area and intercepts mouse input. Default maximum depth is **4** (initial 2×2 is depth 1; settings allow 1–8). Every proposed child and final selection must fit the window's reported minimum size. A bounded native query honors app overrides below Windows defaults; unavailable limits use a labeled tracking estimate rather than the window's current size. Refused placement reports an error and uses the existing verified recovery/Undo. [Interaction details and limits](docs/RECURSIVE_GRID.md).
 
+### Size or move by grid cells
+
+These shortcuts use the standard grid's **Columns × Rows** from Settings (for example 8 × 8). Defaults are **Ctrl + Alt + Shift + W** (width), **Ctrl + Alt + Shift + H** (height) and **Ctrl + Alt + Shift + M** (move); existing settings leave them unassigned. Configure or clear them under **Settings → General**.
+
+- **Width / height:** the active window snaps to its nearest grid span and an orange preview appears over its display. Type a cell count (1–12, up to the grid size). The window is placed immediately when the digit is unambiguous; in a 10–12 cell grid, **1** waits for a second digit or **Enter**. Width keeps the rows and height keeps the columns; the left/top edge is kept unless the span would leave the grid. Backspace clears a pending digit.
+- **Move:** the mouse or arrow keys move the span by whole cells without changing its size. Click or **Enter** places; **Escape** or right-click cancels. Arrows also work in width/height mode, and pressing another span shortcut in the overlay switches mode.
+
+You can type the count right after the shortcut. While GridPilot reads the window's minimum size, a small *measuring* banner holds the keyboard. Digits, **Enter**, **Backspace** and span shortcuts typed then are applied in order when the overlay opens, so they never reach the target app. **Escape**, switching to another window, a display change or the window closing during that moment discards them. If a span shortcut uses a digit key (for example Ctrl + Alt + 1), release its modifiers before typing that digit as a count; pressing the full chord again switches mode or cancels.
+
+Nothing moves until a span is placed. The captured window (HWND and process) and its native minimum size are checked before the overlay opens; a count below the minimum is refused with the smallest allowed count, and a larger minimum reported during placement is remembered for the session (the preview grows to fit it, and the notice names the axis that is too small). Placement uses physical pixels and the configured gap at the display's DPI, verifies the exact frame and keeps tray **Undo**. The overlay closes if the window disappears, the display changes or focus moves elsewhere.
+
 ### Use the placement grid
 
 1. Activate a resizable desktop application window.
@@ -56,7 +67,7 @@ The picker covers the target monitor's usable work area and intercepts mouse inp
 4. Drag across the screenshot grid in any direction. Orange marks the selected window's destination. Ordinary placement moves only that window, including over other apps. Enable **Reflow windows** to explicitly rearrange overlapping apps into remaining cells.
 5. Release inside the grid to apply. **Escape**, clicking outside, or losing input capture cancels. Releasing a drag outside the grid clears the selection without moving the window.
 
-Ctrl-click selects a different window; Ctrl-drag places the current selection, even when Ctrl is still held from the opening shortcut. Reported native minimums are checked before moving. A larger minimum discovered during a single-window move is accommodated on-screen without first snapping back; Undo keeps the original placement. Impossible or unresponsive placements still retain verified recovery. Reflow is off each time Focus opens; swaps and shared dividers remain explicit group actions.
+Ctrl-click selects a different window; Ctrl-drag places the current selection, even when Ctrl is still held from the opening shortcut. Reported native minimums are checked before moving. A larger minimum discovered during a single-window move is accommodated on-screen without first snapping back; Undo keeps the original placement. Impossible or unresponsive placements still retain verified recovery. Reflow defaults off and can be enabled persistently in Settings > General; swaps and shared dividers remain explicit group actions.
 
 The initial target is captured before the panel opens. **Ctrl-click a window inside the preview** to select a different target without closing the panel. Its name, icon, and red glow update immediately, and every subsequent placement or preset acts on that selected window. Selecting never resizes anything. Escape closes the panel and focuses the selected application; committing also focuses it. Maximized windows restore on commit; undo can restore their maximized state.
 

@@ -45,6 +45,7 @@ public partial class GridPanel : Window
         snapshots = monitors.ToDictionary(m => m.Device, DesktopSnapshot.Capture);
         var visual = AppVisual.Placeholder(target.Title);
         InitializeComponent();
+        ReflowWindows.IsChecked = settings.ReflowOverlappingWindows;
         bool uiTest = Environment.GetCommandLineArgs().Contains("--ui-test");
         if (uiTest) ShowInTaskbar = true;
         TargetTitle.Text = visual.Name; TargetTitle.ToolTip = target.Title;

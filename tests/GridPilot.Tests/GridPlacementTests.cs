@@ -15,6 +15,33 @@ internal static partial class Program
     private static async Task GridPlacementNativeTests()
     {
         const BindingFlags fields = BindingFlags.NonPublic | BindingFlags.Instance;
+        Assert(!new AppSettings().ReflowOverlappingWindows, "new installations leave overlap reflow disabled");
+        Assert(!System.Text.Json.JsonSerializer.Deserialize<AppSettings>("{}")!.ReflowOverlappingWindows, "legacy settings leave overlap reflow disabled");
+        Assert(new AppSettings { ReflowOverlappingWindows = true }.Clone().ReflowOverlappingWindows, "enabled overlap preference survives settings round trip");
+        Theme.Apply("Dark");
+        foreach (bool enabled in new[] { true, false })
+        {
+            AppSettings? saved = null;
+            var editor = new SettingsWindow(new AppSettings { ReflowOverlappingWindows = !enabled }, proposed => { saved = proposed.Clone(); return null; }, null) { ShowActivated = false };
+            try
+            {
+                editor.Show(); editor.UpdateLayout();
+                var checkbox = EditorField<CheckBox>(editor, "reflowOverlappingWindows");
+                Assert(checkbox.IsChecked == !enabled, "settings loads saved overlap preference");
+                checkbox.IsChecked = enabled;
+                if (!enabled)
+                {
+                    checkbox.BringIntoView(); editor.UpdateLayout();
+                    var bitmap = new RenderTargetBitmap((int)Math.Ceiling(editor.ActualWidth), (int)Math.Ceiling(editor.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+                    bitmap.Render(editor);
+                    var png = new PngBitmapEncoder(); png.Frames.Add(BitmapFrame.Create(bitmap));
+                    using var output = System.IO.File.Create(System.IO.Path.Combine(AppContext.BaseDirectory, "grid-overlap-settings.png")); png.Save(output);
+                }
+                Click(editor, "Save settings");
+                Assert(saved is not null && saved.ReflowOverlappingWindows == enabled, "settings saves overlap enabled and disabled");
+            }
+            finally { editor.Close(); }
+        }
         using var fixture = StartFixture("--pair");
         try
         {
@@ -50,6 +77,9 @@ internal static partial class Program
             await Task.Delay(150);
 
             Theme.Apply("Dark");
+            var optedInPanel = new GridPanel(target, new AppSettings { ReflowOverlappingWindows = true }, false, (_, _) => null);
+            Assert(((CheckBox)optedInPanel.FindName("ReflowWindows")).IsChecked == true, "grid honors enabled overlap preference");
+            optedInPanel.Dismiss(false);
             var panel = new GridPanel(target, new AppSettings { WindowSidebarOpen = false }, false, (_, _) => null) { DismissOnDeactivate = false };
             try
             {

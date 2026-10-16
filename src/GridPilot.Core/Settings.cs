@@ -26,8 +26,11 @@ public sealed class AppSettings
     // Missing fields in older settings stay unassigned, avoiding collisions with
     // a user's existing Ctrl+Alt+D binding. New installations get the default.
     [System.Text.Json.Serialization.JsonConstructor]
-    public AppSettings(Shortcut? drawPlacement, Shortcut? recursiveGridPlacement)
-    { DrawPlacement = drawPlacement; RecursiveGridPlacement = recursiveGridPlacement; }
+    public AppSettings(Shortcut? drawPlacement, Shortcut? recursiveGridPlacement, Shortcut? gridWidth = null, Shortcut? gridHeight = null, Shortcut? gridMove = null)
+    {
+        DrawPlacement = drawPlacement; RecursiveGridPlacement = recursiveGridPlacement;
+        GridWidth = gridWidth; GridHeight = gridHeight; GridMove = gridMove;
+    }
     public int Version { get; set; } = 1;
     public List<WorkspaceScene> Scenes { get; set; } = [];
     public int Columns { get; set; } = 6;
@@ -38,6 +41,11 @@ public sealed class AppSettings
     public Shortcut? RecursiveGridPlacement { get; set; } = new(3, 0x47);
     public int RecursiveGridMaxDepth { get; set; } = 4;
     public Shortcut? RecursiveGridDivideAll { get; set; } = new(0, 0x41);
+    // Grid span shortcuts: width/height are followed by a typed cell count; move snaps the span.
+    // Shift keeps the defaults clear of common Ctrl+Alt+letter placement shortcuts.
+    public Shortcut? GridWidth { get; set; } = new(7, 0x57);
+    public Shortcut? GridHeight { get; set; } = new(7, 0x48);
+    public Shortcut? GridMove { get; set; } = new(7, 0x4d);
     private DrawSnappingSettings drawSnapping = new();
     public DrawSnappingSettings DrawSnapping { get => drawSnapping; set => drawSnapping = value ?? new(); }
     public Shortcut? Undo { get; set; }
@@ -46,6 +54,7 @@ public sealed class AppSettings
     public bool SmokedGlass { get; set; } = true;
     public bool WindowSidebarOpen { get; set; } = true;
     public bool CloseAfterPlacement { get; set; }
+    public bool ReflowOverlappingWindows { get; set; }
     private PartialWorkspaceSettings partialWorkspace = new();
     public PartialWorkspaceSettings PartialWorkspace { get => partialWorkspace; set => partialWorkspace = value ?? new(); }
     public List<ArrangementPreference> ArrangementPreferences { get; set; } = [];
@@ -103,6 +112,11 @@ public sealed class AppSettings
         if (DrawPlacement is not null && !shortcuts.Add(DrawPlacement)) return "Draw placement needs a different shortcut from activation and Undo.";
         if (RecursiveGridPlacement is not null && !shortcuts.Add(RecursiveGridPlacement)) return "Recursive grid needs a different shortcut from other GridPilot actions.";
         if (PartialWorkspace.Shortcut is { } fillShortcut && !shortcuts.Add(fillShortcut)) return "Fill empty slot needs a different shortcut from activation and Undo.";
+        foreach (var (shortcut, label) in new[] { (GridWidth, "Grid width"), (GridHeight, "Grid height"), (GridMove, "Move on grid") })
+        {
+            if (shortcut?.Validate() is { } spanError) return $"{label}: {spanError}";
+            if (shortcut is not null && !shortcuts.Add(shortcut)) return $"{label} needs a different shortcut from other GridPilot actions.";
+        }
         var ids = new HashSet<string>();
         foreach (var preset in Presets)
         {

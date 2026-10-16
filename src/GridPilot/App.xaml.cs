@@ -53,8 +53,8 @@ public partial class App : Application
         Theme.Apply(settings.Theme);
         hotkeys = new HotkeyService();
         CreateTray();
-        hotkeys.DisplayChanged += () => { Diagnostics.Write("Display changed; dismissing grid."); drawSession?.Cancel(false); recursiveSession?.Invalidate(); panel?.Dismiss(true); };
-        hotkeys.PreferencesChanged += () => { Diagnostics.Write("Preferences changed; dismissing grid."); drawSession?.Cancel(false); recursiveSession?.Invalidate(); panel?.Dismiss(true); Theme.Apply(settings.Theme); };
+        hotkeys.DisplayChanged += () => { Diagnostics.Write("Display changed; dismissing grid."); drawSession?.Cancel(false); recursiveSession?.Invalidate(); spanSession?.Invalidate(); panel?.Dismiss(true); };
+        hotkeys.PreferencesChanged += () => { Diagnostics.Write("Preferences changed; dismissing grid."); drawSession?.Cancel(false); recursiveSession?.Invalidate(); spanSession?.Invalidate(); panel?.Dismiss(true); Theme.Apply(settings.Theme); };
         if (!hotkeys.TryApply(Actions(settings), out var shortcutError)) paused = true;
         UpdateTray();
         foregroundCallback = (_, _, hwnd, _, _, _, _) =>
@@ -75,6 +75,7 @@ public partial class App : Application
         var actions = new List<HotkeyAction> { new(config.Activation, "Open grid", () => TogglePanel(false)) };
         if (config.DrawPlacement is { } draw) actions.Add(new(draw, "Draw placement", () => ToggleDrawPlacement(false)));
         if (config.RecursiveGridPlacement is { } recursive) actions.Add(new(recursive, "Recursive grid", () => _ = ToggleRecursiveGridAsync(false)));
+        AddGridSpanActions(actions, config);
         if (config.Undo is { } undo) actions.Add(new(undo, "Undo placement", () => _ = UndoAsync()));
         if (config.PartialWorkspace.Shortcut is { } fill) actions.Add(new(fill, "Fill empty slot", () =>
         {
@@ -95,7 +96,7 @@ public partial class App : Application
     private void TogglePanel(bool fromTray)
     {
         Diagnostics.Write($"Open grid requested. Busy={windows.Busy}; settingsActive={settingsWindow?.IsActive}; panel={panel is not null}");
-        if (windows.Busy || openingRecursiveGrid || recursiveSession is not null || arrangeWindow is not null || scenesWindow is not null || drawSession is not null) return;
+        if (windows.Busy || openingRecursiveGrid || recursiveSession is not null || GridSpanActive || arrangeWindow is not null || scenesWindow is not null || drawSession is not null) return;
         if (settingsWindow is not null) { settingsWindow.Activate(); return; }
         if (panel is not null) { panel.Dismiss(true); return; }
         string? error = null;
@@ -147,7 +148,8 @@ public partial class App : Application
     }
     private void ShowScenes()
     {
-        if (windows.Busy || openingRecursiveGrid || recursiveSession?.IsCommitting == true) return;
+        if (windows.Busy || openingRecursiveGrid || recursiveSession?.IsCommitting == true || GridSpanCommitting) return;
+        spanSession?.Cancel(false);
         recursiveSession?.Cancel(false);
         drawSession?.Cancel(false);
         if (scenesWindow is not null) { scenesWindow.Activate(); return; }
@@ -180,7 +182,7 @@ public partial class App : Application
 
     private void ToggleDrawPlacement(bool fromTray)
     {
-        if (openingRecursiveGrid || recursiveSession is not null) return;
+        if (openingRecursiveGrid || recursiveSession is not null || GridSpanActive) return;
         if (drawSession is { } active) { active.Cancel(true); return; }
         if (windows.Busy || arrangeWindow is not null || scenesWindow is not null || panel?.IsOperationPending == true) return;
         if (settingsWindow is not null) { settingsWindow.Activate(); return; }
@@ -225,7 +227,7 @@ public partial class App : Application
     private async Task ToggleRecursiveGridAsync(bool fromTray)
     {
         if (recursiveSession is { } active) { active.Cancel(true); return; }
-        if (openingRecursiveGrid || windows.Busy || drawSession is not null || arrangeWindow is not null || scenesWindow is not null || panel?.IsOperationPending == true) return;
+        if (openingRecursiveGrid || GridSpanActive || windows.Busy || drawSession is not null || arrangeWindow is not null || scenesWindow is not null || panel?.IsOperationPending == true) return;
         if (settingsWindow is not null) { settingsWindow.Activate(); return; }
         string? error = null;
         var target = panel is { IsActive: true } ? panel.Target : fromTray
@@ -300,7 +302,7 @@ public partial class App : Application
     }
     private async Task FillEmptySlotAsync(WindowTarget target, string? selectedDevice = null)
     {
-        if (openingRecursiveGrid || recursiveSession is not null) return;
+        if (openingRecursiveGrid || recursiveSession is not null || GridSpanActive) return;
         if (scenesWindow is not null) { scenesWindow.Activate(); return; }
         if (drawSession is not null) return;
         if (arrangeWindow is not null) { arrangeWindow.Activate(); return; }
@@ -332,7 +334,8 @@ public partial class App : Application
     }
     private async Task UndoAsync(GridPanel? requestedOwner = null)
     {
-        if (openingRecursiveGrid || recursiveSession?.IsCommitting == true) return;
+        if (openingRecursiveGrid || recursiveSession?.IsCommitting == true || GridSpanCommitting) return;
+        spanSession?.Cancel(false);
         recursiveSession?.Cancel(false);
         drawSession?.Cancel(false);
         var owner = panel;
@@ -344,7 +347,8 @@ public partial class App : Application
     private void ShowSettings() => ShowSettings(null);
     private void ShowSettings(string? warning)
     {
-        if (exiting || openingRecursiveGrid || recursiveSession?.IsCommitting == true) return;
+        if (exiting || openingRecursiveGrid || recursiveSession?.IsCommitting == true || GridSpanCommitting) return;
+        spanSession?.Cancel(false);
         if (scenesWindow is not null) { scenesWindow.Activate(); return; }
         drawSession?.Cancel(false);
         recursiveSession?.Cancel(false);
@@ -363,7 +367,7 @@ public partial class App : Application
     }
     private void RestoreHotkeys()
     {
-        if (exiting || paused || hotkeys is null || openingRecursiveGrid || recursiveSession is not null || arrangeWindow is not null || scenesWindow is not null || drawSession is not null) return;
+        if (exiting || paused || hotkeys is null || openingRecursiveGrid || recursiveSession is not null || GridSpanActive || arrangeWindow is not null || scenesWindow is not null || drawSession is not null) return;
         if (!hotkeys.TryApply(Actions(settings), out var error)) { paused = true; Notify(error!); UpdateTray(); }
     }
     private string? SaveSettings(AppSettings updated)
@@ -400,9 +404,10 @@ public partial class App : Application
     }
     private void TogglePause()
     {
-        if (openingRecursiveGrid || recursiveSession?.IsCommitting == true) return;
+        if (openingRecursiveGrid || recursiveSession?.IsCommitting == true || GridSpanCommitting) return;
         drawSession?.Cancel(false);
         recursiveSession?.Cancel(true);
+        spanSession?.Cancel(true);
         panel?.Dismiss(true);
         if (!paused) { hotkeys!.TryApply(Array.Empty<HotkeyAction>(), out _); paused = manuallyPaused = true; }
         else if (hotkeys!.TryApply(arrangeWindow is null && scenesWindow is null ? Actions(settings) : Array.Empty<HotkeyAction>(), out var error)) paused = manuallyPaused = false;
@@ -470,7 +475,7 @@ public partial class App : Application
     }
     private void OnUnexpectedError(object sender, DispatcherUnhandledExceptionEventArgs e)
     {
-        Log(e.Exception); drawSession?.Cancel(false); recursiveSession?.Cancel(false); panel?.Dismiss(false); Notify("GridPilot could not complete that action. Details are in the local error log."); e.Handled = true;
+        Log(e.Exception); drawSession?.Cancel(false); recursiveSession?.Cancel(false); spanSession?.Cancel(false); panel?.Dismiss(false); Notify("GridPilot could not complete that action. Details are in the local error log."); e.Handled = true;
     }
     private static void Log(Exception exception)
     {
@@ -487,6 +492,7 @@ public partial class App : Application
         exiting = true;
         drawSession?.Cancel(false);
         recursiveSession?.Cancel(true);
+        spanSession?.Cancel(true);
         referenceRail?.Shutdown();
         panel?.Dismiss(false); settingsWindow?.Close(); arrangeWindow?.Close(); scenesWindow?.Close();
         if (foregroundHook != 0) Native.UnhookWinEvent(foregroundHook);
