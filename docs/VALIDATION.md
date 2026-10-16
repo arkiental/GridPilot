@@ -1,5 +1,10 @@
 # Validation
 
+## Quick placement menu, 17 October 2026
+
+The main grid opens with the pointer centered on the actual work-area preview and its window clamped to the pointer monitor. Successful placement closes it unless the session-only Keep open checkbox beside Auto arrange is enabled. New settings default to Alt+Shift+Space; existing bindings are preserved. Release compilation with warnings as errors passed (zero warnings/errors). Per the user's instruction, automated/native tests and desktop launches were not run for this change. Mixed-DPI positioning, edge cases on very small displays, and cursor behavior remain unverified at runtime.
+
+
 ## Focus grid responsiveness, 12 October 2026 (local gridfix.1)
 
 Publication on `main`: the fix was isolated onto `b6bc6a1`, excluding the unrelated move-anywhere feature in PR #57. The Release build passed with zero warnings/errors; core checks passed **8,237 assertions**, `--grid-placement` passed **8,276**, and `--interactions` passed **8,282**. The first interaction rerun observed unchanged original bounds during the constrained-refusal fixture and retained Undo; an unchanged-code rerun passed. This timing-sensitive native failure is recorded rather than treating every run as successful. Counts below describe the earlier installed preview-based build, whose core includes 13 additional move-anywhere assertions. Main-based normal fixture placements completed in 77.8–93.6 ms; repeated dynamic-minimum placement completed in 346.2 ms. No global shortcut input was injected.

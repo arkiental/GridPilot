@@ -37,6 +37,7 @@
      <DockPanel Height="32">
       <Button Background="Transparent" DockPanel.Dock="Right" Content="Scenes" Click="ScenesClick" Padding="10,4" BorderThickness="0" ToolTip="Save and restore workspace scenes"/>
       <Button Background="Transparent" DockPanel.Dock="Right" Content="Auto arrange" Click="AutoArrangeClick" Padding="10,4" BorderThickness="0" ToolTip="Preview and arrange windows on this display"/>
+      <CheckBox x:Name="KeepOpenToggle" DockPanel.Dock="Right" Content="Keep open" VerticalAlignment="Center" Margin="6,0,8,0" Checked="KeepOpenChanged" Unchecked="KeepOpenChanged" ToolTip="Keep this menu open after placement. Off each time you open the menu." AutomationProperties.Name="Keep placement menu open"/>
       <Button x:Name="GridOptionsButton" Background="Transparent" DockPanel.Dock="Right" Click="GridOptionsClick" BorderThickness="0" Padding="12,4" ToolTip="Grid size" AutomationProperties.Name="Grid size"><StackPanel Orientation="Horizontal"><TextBlock x:Name="GridSize"/><TextBlock Text="⌄" Margin="12,0,0,0"/></StackPanel></Button>
       <TextBlock DockPanel.Dock="Left" Text="&#xE7F4;" FontFamily="Segoe MDL2 Assets" FontSize="18" VerticalAlignment="Center" Margin="8,0"/>
       <ComboBox x:Name="MonitorPicker" Background="Transparent" AutomationProperties.Name="Destination display" DisplayMemberPath="ShortLabel" SelectionChanged="MonitorChanged" MinHeight="28" BorderBrush="Transparent" Margin="0,0,10,0"/>

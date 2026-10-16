@@ -27,7 +27,7 @@ public sealed class SettingsWindow : Window
     private readonly SelectionGrid workspaceGrid = new() { Height = 240, Columns = 8, Rows = 8, ApplyOnRelease = false };
     private readonly TextBlock workspaceSummary = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 10, 0, 12) };
     private readonly Canvas workspaceOccupancy = new() { Height = 220, Background = new SolidColorBrush(Color.FromRgb(23, 25, 29)), ClipToBounds = true };
-    private readonly CheckBox closeAfterPlacement = new() { Content = "Close placement panels after a successful placement", Margin = new Thickness(0, 10, 0, 4) };
+    private readonly CheckBox closeAfterPlacement = new() { Content = "Close Auto arrange after a successful placement", Margin = new Thickness(0, 10, 0, 4), ToolTip = "The main grid closes after placement unless its Keep open toggle is enabled." };
     private readonly CheckBox reflowOverlappingWindows = new() { Content = "Reflow overlapping windows when placing from the grid", Margin = new Thickness(0, 4, 0, 4), ToolTip = "Off by default: only the selected window moves. When enabled, overlapping windows are rearranged into remaining grid space." };
     private readonly CheckBox startAtLogin = new() { Content = "Launch GridPilot when I sign in", Margin = new Thickness(0, 12, 0, 0) };
     private readonly CheckBox smokedGlass = new() { Content = "Smoked Glass panel", Margin = new Thickness(0, 0, 0, 4) };

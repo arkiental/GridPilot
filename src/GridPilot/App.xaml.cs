@@ -33,7 +33,7 @@ public partial class App : Application
     private readonly ExternalForegroundTracker externalForeground = new();
     private PanelPlacementController? placementController;
     private PanelPlacementController Placements => placementController ??= new(() => panel,
-        () => settings.CloseAfterPlacement, () => windows.CanUndo, () => windows.Busy);
+        () => panel?.KeepOpen != true, () => windows.CanUndo, () => windows.Busy);
     private Region? lastRegion;
     private bool paused, manuallyPaused, exiting;
     private Native.WinEventCallback? foregroundCallback;
@@ -112,7 +112,7 @@ public partial class App : Application
         {
             var updated = settings.Clone(); updated.WindowSidebarOpen = open;
             return SaveSettings(updated);
-        }) { DismissOnDeactivate = settings.CloseAfterPlacement };
+        }) { DismissOnDeactivate = true, CenterCursorOnOpen = true };
         panel = next;
         next.Closed += (_, _) => { if (panel == next) panel = null; };
         next.PlacementRequested += (selected, region, device) => _ = PlaceAsync(selected, device, region, true);

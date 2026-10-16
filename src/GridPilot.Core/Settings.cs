@@ -36,7 +36,7 @@ public sealed class AppSettings
     public int Columns { get; set; } = 6;
     public int Rows { get; set; } = 6;
     public double Gap { get; set; } = 8;
-    public Shortcut Activation { get; set; } = new(6, 0x20);
+    public Shortcut Activation { get; set; } = new(5, 0x20);
     public Shortcut? DrawPlacement { get; set; } = new(3, 0x44);
     public Shortcut? RecursiveGridPlacement { get; set; } = new(3, 0x47);
     public int RecursiveGridMaxDepth { get; set; } = 4;

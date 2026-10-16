@@ -26,6 +26,8 @@ public partial class GridPanel : Window
     private DisplayMonitor panelMonitor = null!;
     public WindowTarget Target => target;
     internal bool DismissOnDeactivate { get; set; }
+    internal bool CenterCursorOnOpen { get; set; }
+    internal bool KeepOpen => KeepOpenToggle.IsChecked == true;
     public event Action<WindowTarget, Region, string>? PlacementRequested;
     public event Action<WindowTarget, PlacementPreset, string>? PresetRequested;
     public event Action<WindowTarget>? TargetChanged;
@@ -76,7 +78,7 @@ public partial class GridPanel : Window
         PositionNearPointer();
         Deactivated += (_, _) => Dispatcher.BeginInvoke(DismissIfOutside);
         Closed += (_, _) => { closing = true; ClearFreeSpace(); Backdrop.Dispose(); GridControl.Desktop = null; snapshots.Clear(); visualTasks.Clear(); preview.Close(); };
-        Loaded += (_, _) => { Diagnostics.Write("Focus panel loaded."); Activate(); GridControl.Focus(); GridControl.PulseTarget(); RebuildFocusDividers(); };
+        Loaded += (_, _) => { Diagnostics.Write("Focus panel loaded."); Activate(); GridControl.Focus(); if (CenterCursorOnOpen) CenterPreviewAtPointer(); GridControl.PulseTarget(); RebuildFocusDividers(); };
         PreviewKeyDown += HandlePanelKey;
         ((UIElement)PresetsPopup.Child).PreviewKeyDown += HandlePanelKey;
         ((UIElement)GridPopup.Child).PreviewKeyDown += HandlePanelKey;
@@ -227,6 +229,35 @@ public partial class GridPanel : Window
         int top = Math.Clamp(pointer.Y + 16, panelMonitor.Work.Top + 4, Math.Max(panelMonitor.Work.Top + 4, panelMonitor.Work.Bottom - height - 4));
         using var dpiContext = new Native.DpiScope();
         Native.SetWindowPos(handle, 0, left, top, width, height, 0x10 | 0x4);
+    }
+    private void KeepOpenChanged(object sender, RoutedEventArgs e)
+    {
+        DismissOnDeactivate = !KeepOpen;
+    }
+
+    private void CenterPreviewAtPointer()
+    {
+        // WorkRectangle is the actual desktop work-area preview, excluding the
+        // toolbar, sidebar and letterboxing. PointToScreen supplies physical pixels.
+        UpdateLayout();
+        var work = GridControl.WorkRectangle;
+        if (work.IsEmpty || work.Width <= 0 || work.Height <= 0) return;
+        using var dpiContext = new Native.DpiScope();
+        if (!Native.GetCursorPos(out var pointer)) return;
+        var center = GridControl.PointToScreen(new Point(work.Left + work.Width / 2, work.Top + work.Height / 2));
+        var origin = PointToScreen(new Point(0, 0));
+        var far = PointToScreen(new Point(ActualWidth, ActualHeight));
+        int width = (int)Math.Ceiling(far.X - origin.X), height = (int)Math.Ceiling(far.Y - origin.Y);
+        int left = Math.Clamp((int)Math.Round(pointer.X - (center.X - origin.X)), panelMonitor.Work.Left,
+            Math.Max(panelMonitor.Work.Left, panelMonitor.Work.Right - width));
+        int top = Math.Clamp((int)Math.Round(pointer.Y - (center.Y - origin.Y)), panelMonitor.Work.Top,
+            Math.Max(panelMonitor.Work.Top, panelMonitor.Work.Bottom - height));
+        Native.SetWindowPos(handle, 0, left, top, width, height, 0x10 | 0x4);
+        UpdateLayout();
+        // At monitor edges the panel must be clamped, so move the pointer the
+        // remaining distance to the preview center. Only happens on initial open.
+        center = GridControl.PointToScreen(new Point(work.Left + work.Width / 2, work.Top + work.Height / 2));
+        Native.SetCursorPos((int)Math.Round(center.X), (int)Math.Round(center.Y));
     }
     private void ShowPreview(Region region)
     {

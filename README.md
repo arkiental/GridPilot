@@ -61,11 +61,13 @@ Nothing moves until a span is placed. The captured window (HWND and process) and
 
 ### Use the placement grid
 
+The menu opens with the cursor centered on the desktop preview. Its position is clamped to the current monitor work area; near edges, the cursor moves to the clamped preview center. **Keep open** resets to off on every opening. The Settings close-after-placement option now applies only to Auto arrange.
+
 1. Activate a resizable desktop application window.
-2. Press **Ctrl + Shift + Space** (configurable).
+2. Press **Alt + Shift + Space** (configurable; existing saved shortcuts are preserved).
 3. Choose a destination display if needed.
 4. Drag across the screenshot grid in any direction. Orange marks the selected window's destination. Ordinary placement moves only that window, including over other apps. Enable **Reflow windows** to explicitly rearrange overlapping apps into remaining cells.
-5. Release inside the grid to apply. **Escape**, clicking outside, or losing input capture cancels. Releasing a drag outside the grid clears the selection without moving the window.
+5. Release inside the grid to apply. The menu closes after a successful placement and stays closed until you open it again. Enable **Keep open**, beside **Auto arrange**, to retain it for this session. **Escape**, clicking outside, or losing input capture cancels. Releasing a drag outside the grid clears the selection without moving the window.
 
 Ctrl-click selects a different window; Ctrl-drag places the current selection, even when Ctrl is still held from the opening shortcut. Reported native minimums are checked before moving. A larger minimum discovered during a single-window move is accommodated on-screen without first snapping back; Undo keeps the original placement. Impossible or unresponsive placements still retain verified recovery. Reflow defaults off and can be enabled persistently in Settings > General; swaps and shared dividers remain explicit group actions.
 
