@@ -99,7 +99,7 @@ Independent component and integration critics found no remaining actionable code
 
 ## Implemented scope
 
-Configurable grid; explicit target capture and Ctrl-click switching; front-to-back overlap cycling and named window chooser; reverse drag; live desktop preview; release-to-commit; Escape/outside/lost-capture cancellation; keyboard selection; proportional preset editor and global shortcuts; multiple-monitor selection and destination rules; DPI-scaled gaps; taskbar-aware geometry; tray controls; safe persistent settings; system/light/dark/high-contrast appearance; optional launch at sign-in; single-instance handling; verified undo, including maximized state; portable self-contained packaging and per-user installation scripts.
+Configurable grid; explicit target capture and Ctrl-click switching; front-to-back overlap cycling and named window chooser; reverse drag; live desktop preview; release-to-commit; Escape/outside-click/lost-capture cancellation; edge-clamped drag release; keyboard selection; proportional preset editor and global shortcuts; multiple-monitor selection and destination rules; DPI-scaled gaps; taskbar-aware geometry; tray controls; safe persistent settings; system/light/dark/high-contrast appearance; optional launch at sign-in; single-instance handling; verified undo, including maximized state; portable self-contained packaging and per-user installation scripts.
 
 ## Automated verification
 
@@ -241,3 +241,14 @@ Release build with warnings as errors passed. Core: 5199 assertions; focused own
 - `dotnet run --project tests/GridPilot.Tests -c Release --no-build -- --scenes` exercises owned fixtures only: explicit same-app assignment, duplicate identity refusal, preview invalidation, missing-display remap, save-name retention, grouped Undo, app-size refusal rollback and stale display rejection. With multiple connected displays it places the fixtures on different displays in one transaction.
 - Manual: try capture/save/rename/delete and restore after reconnecting mixed-DPI displays; verify keyboard navigation, high contrast and small work areas. Source maximized geometry restores as a normal rectangle; Undo restores the pre-operation native state. No app launching, document reopening or saved Z-order is promised.
 - Local validation on 2026-09-27: Release build with warnings as errors passed; core suite passed 5,000 assertions; focused scenes suite passed 5,011 assertions on one connected display. Multi-display and mixed-DPI hardware behavior remains a manual check.
+
+
+## Preview drag release outside the grid (2026-10-19)
+
+Ordinary and Ctrl-drag releases now use the final pointer position clamped to the grid, including releases outside the control and coalesced moves. Ctrl-click picking, outside Alt-swap cancellation, Reset/capture-loss cancellation, and preset-editor `ApplyOnRelease=false` behavior remain unchanged.
+
+On DESKTOP-PLH13CV, Release build with warnings as errors passed. `--core` passed 12,474 assertions; `--selection-release` passed 12,687 assertions; `--grid-placement` passed 12,521 assertions. The release fixture covers all edges/corners, reverse direction, exact boundary, duplicate release, a synthetic portrait display with letterboxing/taskbar offset, and capture cleanup. Its PNG renders only the synthetic control. An independent source critic found no concrete defects.
+
+The focused fixture seeds gesture state and calls the same release handler used by mouse-up, with real WPF capture but no injected desktop input. It does not certify actual hardware mouse-up routing, mixed-monitor dragging, or end-to-end outside-release placement. Existing native grid-placement tests independently verify movement and Undo on disposable windows.
+
+The full native suite stopped at RecursiveGridNativeTests.cs:144: "timed-out recursive grid query never offers a smaller fallback frame or moves its target". The same failure reproduced with `--recursive-grid-native` on unchanged main commit 0a4b0df. The full suite therefore is not claimed as passing.

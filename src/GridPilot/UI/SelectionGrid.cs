@@ -216,36 +216,40 @@ public sealed class SelectionGrid : FrameworkElement
     }
     protected override void OnMouseLeftButtonUp(MouseButtonEventArgs e)
     {
+        if (ReleasePointer(e.GetPosition(this))) e.Handled = true;
+    }
+    internal bool ReleasePointer(Point point)
+    {
         // Ctrl belongs to the opening shortcut too. A Ctrl-click selects a
         // window, but dragging must still place it, including coalesced moves.
-        if (picking) ContinuePickDrag(e.GetPosition(this));
+        if (picking) ContinuePickDrag(point);
         if (swapping)
         {
-            bool swapInside = WorkRectangle.Contains(e.GetPosition(this));
+            bool swapInside = WorkRectangle.Contains(point);
             swapping = false; ReleaseMouseCapture();
-            if (swapInside) { var screen = Screen(e.GetPosition(this)); SwapReleased?.Invoke(screen.X, screen.Y); }
+            if (swapInside) { var screen = Screen(point); SwapReleased?.Invoke(screen.X, screen.Y); }
             else CancelDrag();
-            e.Handled = true; return;
+            return true;
         }
         if (picking)
         {
-            var point = e.GetPosition(this);
             picking = false; ReleaseMouseCapture();
             if (desktop is not null && WorkRectangle.Contains(point) && Math.Abs(point.X - pickOrigin.X) <= SystemParameters.MinimumHorizontalDragDistance && Math.Abs(point.Y - pickOrigin.Y) <= SystemParameters.MinimumVerticalDragDistance)
             {
                 var screen = Layout.ToScreen(point);
                 WindowPickRequested?.Invoke(point, screen.X, screen.Y, pickBackwards);
             }
-            e.Handled = true; return;
+            return true;
         }
-        if (!dragging) return;
-        bool inside = WorkRectangle.Contains(e.GetPosition(this));
-        if (inside) { (cursorColumn, cursorRow) = Cell(e.GetPosition(this)); UpdateSelection(); }
+        if (!dragging) return false;
+        // Capture delivers releases beyond the preview too. Clamp the final
+        // point to a cell, just as mouse movement does, even if moves coalesced.
+        (cursorColumn, cursorRow) = Cell(point);
+        UpdateSelection();
         dragging = false;
         ReleaseMouseCapture();
-        if (inside && selection is { } region && ApplyOnRelease) Committed?.Invoke(region);
-        else if (!inside) { Reset(); Interrupted?.Invoke(); }
-        e.Handled = true;
+        if (selection is { } region && ApplyOnRelease) Committed?.Invoke(region);
+        return true;
     }
     internal void ContinuePickDrag(Point point)
     {
