@@ -67,7 +67,7 @@ The menu opens with the cursor centered on the desktop preview. Its position is 
 2. Press **Alt + Shift + Space** (configurable; existing saved shortcuts are preserved).
 3. Choose a destination display if needed.
 4. Drag across the screenshot grid in any direction. Orange marks the selected window's destination. Ordinary placement moves only that window, including over other apps. Enable **Reflow windows** to explicitly rearrange overlapping apps into remaining cells.
-5. Release inside the grid to apply. The menu closes after a successful placement and stays closed until you open it again. Enable **Keep open**, beside **Auto arrange**, to retain it for this session. **Escape**, clicking outside, or losing input capture cancels. Releasing a drag outside the grid clears the selection without moving the window.
+5. Release to apply, even if the pointer has left the grid; the selection clamps to the nearest grid edge. The menu closes after a successful placement and stays closed until you open it again. Enable **Keep open**, beside **Auto arrange**, to retain it for this session. **Escape**, clicking outside, or losing input capture cancels.
 
 Ctrl-click selects a different window; Ctrl-drag places the current selection, even when Ctrl is still held from the opening shortcut. Reported native minimums are checked before moving. A larger minimum discovered during a single-window move is accommodated on-screen without first snapping back; Undo keeps the original placement. Impossible or unresponsive placements still retain verified recovery. Reflow defaults off and can be enabled persistently in Settings > General; swaps and shared dividers remain explicit group actions.
 
